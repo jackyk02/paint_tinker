@@ -88,6 +88,11 @@ integer 0-10 on each of the three criteria; a painting's score is the mean of th
 
 ![held-out curves](results/heldout_curves.png)
 
+![held-out prompts across checkpoints](results/heldout_checkpoints.png)
+
+*Two held-out prompts at six checkpoints. Each cell is the best of that checkpoint's five
+paintings by Gemini score, with the mean of all five below it.*
+
 | Held-out | step 0 (base) | step 470 |
 |---|---|---|
 | Gemini score, all paintings (failed sketch = 0) | 3.24 / 10 | 5.35 / 10 |
