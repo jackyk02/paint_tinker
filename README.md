@@ -7,7 +7,7 @@ a multimodal verifier, and group-centred rewards update the policy on Tinker. Th
 follows ["Training AI to Paint with Code"](https://surya.website/rling-qwen-to-paint-with-code);
 the reward follows [LLM-as-a-Verifier](https://github.com/llm-as-a-verifier/llm-as-a-verifier).
 
-![paintings early to late](results/progression_examples.png)
+![paintings early to late](results/examples_early_to_late.png)
 
 *Two training prompts as they came round during the run, and one held-out prompt (never
 trained on) at three checkpoints. Each cell is the best of that step's five paintings by
