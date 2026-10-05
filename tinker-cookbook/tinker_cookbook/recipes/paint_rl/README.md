@@ -128,8 +128,9 @@ in `train.py` (default 0) still runs the same evaluation inline if you prefer.
 
 Gemini's scores never enter the reward. The verifier's reward is relative to
 the other paintings in a group, so it can't be compared across steps or runs;
-the Gemini score is the fixed yardstick. Gemini returns no logprobs, so its scores are the number it writes in its reply.
-Calls that fail with 429/5xx are retried with backoff; a call that still
+the Gemini score is the fixed yardstick. Gemini returns no logprobs, so it
+scores from the number it writes in its reply: an integer 0-10 per criterion,
+averaged over the three criteria and divided by 10. Calls that fail with 429/5xx are retried with backoff; a call that still
 fails is left out (`eval_strong/failed_frac`).
 
 Useful metrics in `metrics.jsonl`:
@@ -139,6 +140,14 @@ Useful metrics in `metrics.jsonl`:
 - `env/all/verifier/failed_frac`: verifier calls that failed or ran out of tokens and were scored as ties; should stay near 0.
 - `test/env/all/eval_strong/score` (in `heldout_eval/metrics.jsonl`): Gemini's held-out score, the headline number.
 - `test/env/tier3/...`, `test/env/novel_subject/...`: held-out metrics broken out by tier and by held-out kind.
+
+## Results
+
+With the defaults, the held-out Gemini score rose from 3.24 to 5.35 out of 10
+by step 470 (4.25 to 5.35 on compiled paintings only), and the held-out
+compile rate from 76% to 100%. Curves, example paintings and the run's
+metrics are in the
+[top-level README](https://github.com/jackyk02/paint_tinker#results).
 
 ## Rendering on Modal
 
