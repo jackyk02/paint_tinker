@@ -1,13 +1,14 @@
-"""Compare paint_rl runs (e.g. a learning-rate sweep) from their metrics.jsonl.
+"""Compare paint_rl runs (e.g. verifier vs judge) from their metrics.
 
     python -m tinker_cookbook.recipes.paint_rl.compare_runs \
-        runs='{"lr4e-5": "/tmp/paint_rl/lr4e-5", "lr1e-4": "/tmp/paint_rl/lr1e-4"}' \
+        runs='{"verifier": "/tmp/paint_rl/verifier", "judge": "/tmp/paint_rl/judge"}' \
         out=/tmp/paint_rl/compare.png
 
 Prints a per-run summary table and writes a figure with the training curves
-of the compile-gate pass rate, verifier score of compiled paintings, total
-reward, and code length. Runs with different verifier settings optimise
-different rewards; compare those on the held-out Gemini score instead.
+of the compile-gate pass rate, reward-model score of compiled paintings, the
+top-score tie rate, total reward and code length, plus the held-out score
+from ``<run>/heldout_eval/metrics.jsonl``. Runs with different rewards
+optimize different scales; compare those on the held-out score.
 """
 
 from __future__ import annotations
@@ -17,11 +18,14 @@ from pathlib import Path
 
 import chz
 
-KEYS: tuple[tuple[str, str], ...] = (
-    ("env/all/reward/compile_ok", "compile gate pass rate"),
-    ("env/all/reward/score_if_compiled", "verifier score (compiled paintings)"),
-    ("env/all/reward/total", "total reward"),
-    ("env/all/code/chars", "code length (chars)"),
+# (metrics file relative to the run, key, label)
+KEYS: tuple[tuple[str, str, str], ...] = (
+    ("heldout_eval/metrics.jsonl", "test/env/all/eval_strong/score", "held-out score"),
+    ("metrics.jsonl", "env/all/reward/compile_ok", "compile gate pass rate"),
+    ("metrics.jsonl", "env/all/reward/score_if_compiled", "reward score (compiled)"),
+    ("metrics.jsonl", "env/all/scorer/top_tie", "top-score tie rate"),
+    ("metrics.jsonl", "env/all/reward/total", "total reward"),
+    ("metrics.jsonl", "env/all/code/chars", "code length (chars)"),
 )
 
 
@@ -32,8 +36,9 @@ class Config:
     smooth: int = 3
 
 
-def load_metrics(log_dir: Path) -> list[dict[str, float]]:
-    path = log_dir / "metrics.jsonl"
+def load_metrics(path: Path) -> list[dict[str, float]]:
+    if not path.exists():
+        return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
@@ -63,12 +68,13 @@ def main(config: Config) -> None:
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(1, len(KEYS), figsize=(4.5 * len(KEYS), 3.6))
-    print(f"{'run':<12s} {'steps':>5s} " + " ".join(f"{label[:22]:>24s}" for _, label in KEYS))
+    print(f"{'run':<12s} {'steps':>5s} " + " ".join(f"{label[:22]:>24s}" for *_, label in KEYS))
     for name, log_dir in config.runs.items():
-        rows = load_metrics(Path(log_dir))
+        files = {f: load_metrics(Path(log_dir) / f) for f, _, _ in KEYS}
+        rows = files["metrics.jsonl"]
         cells = []
-        for ax, (key, label) in zip(axes, KEYS, strict=True):
-            xs, ys = _series(rows, key)
+        for ax, (file, key, label) in zip(axes, KEYS, strict=True):
+            xs, ys = _series(files[file], key)
             if xs:
                 ax.plot(xs, _smooth(ys, config.smooth), label=name)
                 first = sum(ys[: config.smooth]) / min(len(ys), config.smooth)

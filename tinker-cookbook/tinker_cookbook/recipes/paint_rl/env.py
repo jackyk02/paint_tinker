@@ -1,4 +1,4 @@
-"""RL environment: the policy writes a p5.brush sketch, the group is verified on the rendered images.
+"""RL environment: the policy writes a p5.brush sketch, the group is scored on the rendered images.
 
 Reward for one rollout (all terms in [0, 1]):
 
@@ -7,16 +7,17 @@ Reward for one rollout (all terms in [0, 1]):
 * ``compiled`` — the sketch ran in the headless renderer, used the brush
   library, and painted a non-blank canvas (the compile gate).
 * ``length_ok`` — the code length sits inside ``[min_code_chars, max_code_chars]``.
-* ``score`` — the pairwise verifier's score of the rendered painting; 0 for
-  rollouts that failed the compile gate (they are excluded from the
-  tournament).
+* ``score`` — the reward model's score of the rendered painting: the
+  pairwise verifier's tournament score (``reward_mode="verifier"``) or the
+  absolute judge's 1-10 score mapped to [0, 1] (``reward_mode="judge"``); 0
+  for rollouts that failed the compile gate (they are not scored).
 
-Held-out groups are additionally scored by an independent strong evaluator
-(``gemini-3.8-flash``) that never feeds back into training; it reports
-``eval_strong/score``, a measure of quality that does not depend on the
-training reward.
+Held-out groups are additionally scored by an independent evaluator
+(``moonshotai/Kimi-K2.6`` on Tinker) that never feeds back into training; it
+reports ``eval_strong/score``, a measure of quality that does not depend on
+the training reward, so verifier and judge runs are compared on it.
 
-Every rollout's JavaScript, PNG, raw response, and verifier scores are
+Every rollout's JavaScript, PNG, raw response, and reward-model scores are
 written under ``artifact_dir/<split>/step_XXXX/<prompt id>/`` and indexed in
 ``artifact_dir/index.jsonl`` so the paintings can be browsed as training goes
 (see ``gallery.py``).
@@ -24,7 +25,6 @@ written under ``artifact_dir/<split>/step_XXXX/<prompt id>/`` and indexed in
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import html
 import json
@@ -49,15 +49,20 @@ from tinker_cookbook.recipes.paint_rl.prompts import (
 from tinker_cookbook.recipes.paint_rl.render import (
     RenderBackend,
     RenderResult,
+    SketchRenderer,
     extract_code,
     get_shared_renderer,
 )
 from tinker_cookbook.recipes.paint_rl.verifier import (
     EvaluatorConfig,
     GroupScores,
+    JudgeConfig,
+    RewardConfig,
+    RewardMode,
     VerifierConfig,
     get_shared_evaluator,
-    get_shared_verifier,
+    get_shared_scorer,
+    top_is_tied,
 )
 from tinker_cookbook.renderers import Message, Renderer, get_renderer, get_text_content
 from tinker_cookbook.renderers.tml_v0 import TmlV0Renderer
@@ -89,16 +94,30 @@ class RewardWeights:
 
 
 class PaintEnv(Env):
-    """Single-turn: prompt in, one sketch out. Reward is assigned at group level."""
+    """Single-turn: prompt in, one sketch out. Reward is assigned at group level.
 
-    def __init__(self, prompt: PaintPrompt, renderer: Renderer, system: str, effort: float):
+    The sketch is rendered in ``step``, as soon as this rollout's sample is
+    done, so rendering overlaps the group's slower samples instead of waiting
+    for all of them; the group reward then only scores the finished renders.
+    """
+
+    def __init__(
+        self,
+        prompt: PaintPrompt,
+        renderer: Renderer,
+        system: str,
+        effort: float,
+        sketch_renderer: Callable[[], SketchRenderer],
+    ):
         self.prompt = prompt
         self.renderer = renderer
         self.system = system
         self.effort = effort
+        self.sketch_renderer = sketch_renderer
         self.response_text: str = ""
         self.code: str | None = None
         self.truncated: bool = False
+        self.render: RenderResult | None = None
 
     @property
     def messages(self) -> list[Message]:
@@ -121,6 +140,12 @@ class PaintEnv(Env):
             "stop_reason"
         ) == "length" or not termination.is_stop_sequence
         self.code = None if self.truncated else extract_code(self.response_text)
+        if self.code is not None:
+            self.render = await self.sketch_renderer().render(self.code)
+        else:
+            self.render = _failed_render(
+                "truncated" if self.truncated else "no code block in response"
+            )
         metrics: Metrics = {"policy/truncated": float(self.truncated)}
         if self.truncated:
             metrics["stop/max_tokens"] = 1.0
@@ -151,7 +176,7 @@ class RolloutRecord:
     reward: float
     score: float
     eval_score: float | None
-    """Held-out evaluator (Gemini) score; None on the train split or when off."""
+    """Held-out evaluator score; None on the train split or when off."""
     compiled: bool
     length_ok: bool
     truncated: bool
@@ -176,7 +201,8 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
     policy_effort: float
     group_size: int
     canvas_size: int
-    verifier_config: VerifierConfig
+    # The training reward: a VerifierConfig or a JudgeConfig.
+    reward_config: RewardConfig
     # Independent evaluator for held-out groups; scores nothing on the train
     # split and never enters the reward. None turns it off.
     evaluator_config: EvaluatorConfig | None
@@ -189,51 +215,44 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
     render_backend: RenderBackend = "local"
     # Per-sketch render timeout. A sketch that times out fails the compile gate.
     render_timeout_s: float = 300.0
-    # False skips the training verifier entirely (score 0): used by the
+    # False skips the training reward model entirely (score 0): used by the
     # held-out evaluator, which only needs the independent evaluator's score.
     score_with_training_reward: bool = True
     # Step to file artifacts under; None infers it (see _artifact_iteration).
     artifact_step: int | None = None
 
+    def _sketch_renderer(self) -> SketchRenderer:
+        return get_shared_renderer(
+            self.canvas_size, self.render_concurrency, self.render_backend, self.render_timeout_s
+        )
+
     async def make_envs(self) -> Sequence[Env]:
         return [
-            PaintEnv(self.prompt, self.renderer, self.system, self.policy_effort)
+            PaintEnv(
+                self.prompt, self.renderer, self.system, self.policy_effort, self._sketch_renderer
+            )
             for _ in range(self.group_size)
         ]
 
     def logging_tags(self) -> list[str]:
         # The cookbook aggregates metrics per tag whenever a tag selects a
         # strict subset of the batch, so held-out metrics come out per tier
-        # (test/env/tier3/...) and per kind (test/env/novel_subject/...).
-        tags = ["paint", self.split, f"tier{self.prompt.tier}"]
-        if self.prompt.kind != self.split:
-            tags.append(self.prompt.kind)
-        return tags
+        # (test/env/tier3/...) and per family (test/env/animal/...).
+        return ["paint", self.split, f"tier{self.prompt.tier}", self.prompt.family]
 
     async def compute_group_rewards(
         self, trajectory_group: list[Trajectory], env_group: Sequence[Env]
     ) -> list[tuple[float, Metrics]]:
         envs = [e for e in env_group if isinstance(e, PaintEnv)]
         assert len(envs) == len(trajectory_group)
-        renderer = get_shared_renderer(
-            self.canvas_size, self.render_concurrency, self.render_backend, self.render_timeout_s
-        )
 
-        # 1) render every sketch (compile gate)
-        t_render = time.monotonic()
-        renders: list[RenderResult] = await asyncio.gather(
-            *(
-                renderer.render(env.code)
-                if env.code is not None
-                else _failed_render(
-                    "no code block in response" if not env.truncated else "truncated"
-                )
-                for env in envs
-            )
-        )
-        render_seconds = time.monotonic() - t_render
+        # 1) every sketch was rendered in its own step (compile gate)
+        renders: list[RenderResult] = []
+        for env in envs:
+            assert env.render is not None, "PaintEnv.step renders the sketch"
+            renders.append(env.render)
 
-        # 2) verify the valid paintings as a group
+        # 2) score the valid paintings as a group
         valid = [i for i, r in enumerate(renders) if r.ok]
         images: list[Image.Image] = []
         for i in valid:
@@ -245,8 +264,8 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
             1 << 30
         )
         if images and self.score_with_training_reward:
-            verifier = get_shared_verifier(self.verifier_config)
-            group_scores = await verifier.score_group(self.prompt.text, images, seed=group_seed)
+            scorer = get_shared_scorer(self.reward_config)
+            group_scores = await scorer.score_group(self.prompt.text, images, seed=group_seed)
         else:
             group_scores = GroupScores(scores=[])
         verify_seconds = time.monotonic() - t_verify
@@ -265,6 +284,11 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
         eval_by_index = (
             dict(zip(valid, eval_scores.scores, strict=True)) if eval_scores.scores else {}
         )
+
+        # How often the group's best paintings are indistinguishable to the
+        # reward: equal scores get equal advantages, so a tied top gives no
+        # signal between them. Needs two or more scored paintings.
+        top_tie = top_is_tied(group_scores.scores) if len(group_scores.scores) >= 2 else None
 
         # 3) compose rewards
         results: list[tuple[float, Metrics]] = []
@@ -285,13 +309,17 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
                 "code/brush_calls": render.n_brush_calls,
                 "code/missing": float(env.code is None),
                 "render/blank": float(render.blank),
-                "time/render_group_s": render_seconds,
+                "time/render_s": render.duration_s,
                 "time/verify_group_s": verify_seconds,
-                "verifier/calls_per_rollout": group_scores.n_calls / len(envs),
-                "verifier/failed_frac": (
+                "scorer/calls_per_rollout": group_scores.n_calls / len(envs),
+                "scorer/failed_frac": (
                     group_scores.n_truncated / group_scores.n_calls if group_scores.n_calls else 0.0
                 ),
             }
+            if top_tie is not None:
+                # Same value on every rollout of the group, so the batch mean
+                # is the fraction of groups whose top score is tied.
+                metrics["scorer/top_tie"] = float(top_tie)
             if compiled:
                 metrics["reward/score_if_compiled"] = score
             if eval_scores.n_calls:
@@ -400,7 +428,7 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
                 img = _image_html(render.png) if render.png is not None else "<i>(no image)</i>"
                 caption = (
                     f"#{rec.index} reward={rec.reward:.3f} score={rec.score:.3f} "
-                    + (f"gemini={rec.eval_score:.2f} " if rec.eval_score is not None else "")
+                    + (f"eval={rec.eval_score:.2f} " if rec.eval_score is not None else "")
                     + f"chars={rec.code_chars}"
                     + (
                         f"<br/><span style='color:#b00'>{html.escape(rec.render_error)}</span>"
@@ -425,7 +453,7 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
                 logtree.details(v.text, summary=label)
 
 
-async def _failed_render(reason: str) -> RenderResult:
+def _failed_render(reason: str) -> RenderResult:
     return RenderResult(
         ok=False, png=None, error=reason, n_brush_calls=0, blank=True, duration_s=0.0
     )
@@ -474,29 +502,37 @@ class PaintRLDatasetBuilder(RLDatasetBuilder):
     batch_size: int
     group_size: int
     n_batches: int
-    policy_effort: float = 0.7
-    verifier_config: VerifierConfig = chz.field(default_factory=VerifierConfig)
+    # The defaults of everything below live in train.py's CLIConfig, which
+    # always passes them.
+    policy_effort: float
+    # Which reward scores the paintings; only the matching config is used,
+    # but both are recorded in config.json.
+    reward_mode: RewardMode
+    verifier_config: VerifierConfig
+    judge_config: JudgeConfig
     # Held-out evaluator. ``None`` turns the extra pass off.
-    evaluator_config: EvaluatorConfig | None = chz.field(default_factory=EvaluatorConfig)
-    weights: RewardWeights = chz.field(default_factory=RewardWeights)
-    canvas_size: int = 512
-    render_concurrency: int = 16
-    render_backend: RenderBackend = "local"
-    render_timeout_s: float = 300.0
-    n_train_prompts: int = 256
-    # Held-out prompts, split evenly: half novel subjects (never trained on in
-    # any form), half novel combinations of seen subject / colour / style.
-    n_test_prompts: int = 16
-    test_group_size: int = 5
-    seed: int = 0
+    evaluator_config: EvaluatorConfig | None
+    weights: RewardWeights
+    canvas_size: int
+    render_concurrency: int
+    render_backend: RenderBackend
+    render_timeout_s: float
+    n_train_prompts: int
+    # Held-out prompts, a sample of the pool spread over every subject.
+    n_test_prompts: int
+    test_group_size: int
+    seed: int
     artifact_dir: str | None = None
+
+    @property
+    def reward_config(self) -> RewardConfig:
+        return self.verifier_config if self.reward_mode == "verifier" else self.judge_config
 
     async def __call__(self) -> tuple[RLDataset, RLDataset | None]:
         renderer = get_renderer(self.renderer_name, get_tokenizer(self.model_name_for_tokenizer))
         train_prompts, test_prompts = build_prompt_splits(
             n_train=self.n_train_prompts,
-            n_test_novel_subject=self.n_test_prompts // 2,
-            n_test_novel_combo=self.n_test_prompts - self.n_test_prompts // 2,
+            n_test=self.n_test_prompts,
             seed=self.seed,
         )
         logger.info(
@@ -530,7 +566,7 @@ class PaintRLDatasetBuilder(RLDatasetBuilder):
                     policy_effort=self.policy_effort,
                     group_size=group_size,
                     canvas_size=self.canvas_size,
-                    verifier_config=self.verifier_config,
+                    reward_config=self.reward_config,
                     evaluator_config=self.evaluator_config,
                     weights=self.weights,
                     artifact_dir=self.artifact_dir,

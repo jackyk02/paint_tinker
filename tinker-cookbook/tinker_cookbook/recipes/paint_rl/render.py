@@ -33,7 +33,7 @@ _BRUSH_CALL = re.compile(r"\bbrush\.([A-Za-z_]\w*)\s*\(")
 # Calls that configure the library rather than draw; they do not count as
 # "using the brush".
 _NON_DRAWING_CALLS = frozenset(
-    {"load", "seed", "instance", "preload", "colorCache", "scaleBrushes"}
+    {"load", "seed", "instance", "preload", "colorCache", "scaleBrushes", "noLoop"}
 )
 
 # Runs after the sketch: wraps setup() so a thrown error is captured instead
@@ -77,6 +77,13 @@ _PAGE_TEMPLATE = """<!doctype html>
 <script>{brush}</script>
 <script>
 window.__done = false; window.__error = null;
+// The harness freezes the loop after setup() itself. Models trained on p5
+// habitually end setup() with noLoop() and sometimes write brush.noLoop(),
+// which p5.brush does not define: make it the harmless no-op it means to be
+// instead of a TypeError that loses the painting.
+if (window.brush && typeof window.brush.noLoop !== 'function') {{
+  try {{ window.brush.noLoop = function () {{}}; }} catch (e) {{}}
+}}
 window.addEventListener('error', function (e) {{
   if (!window.__error) {{ window.__error = String((e && (e.message || e.error)) || 'script error'); }}
 }});
@@ -155,7 +162,7 @@ class SketchRenderer:
         timeout_s: float = 120.0,
         min_brush_calls: int = 3,
         backend: RenderBackend = "local",
-        n_browsers: int = 4,
+        n_browsers: int | None = None,
     ):
         self.canvas_size = canvas_size
         self.backend = backend
@@ -163,6 +170,10 @@ class SketchRenderer:
         self.timeout_s = timeout_s
         self.min_brush_calls = min_brush_calls
         self.max_concurrency = max_concurrency
+        # About four pages per browser keeps each SwiftShader GPU process busy
+        # without pages starving one another.
+        if n_browsers is None:
+            n_browsers = -(-max_concurrency // 4)
         self.n_browsers = max(1, min(n_browsers, max_concurrency))
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._lock = asyncio.Lock()
@@ -308,6 +319,7 @@ def get_shared_renderer(
         or _SHARED.canvas_size != canvas_size
         or _SHARED.backend != backend
         or _SHARED.timeout_s != timeout_s
+        or _SHARED.max_concurrency != max_concurrency
     ):
         _SHARED = SketchRenderer(
             canvas_size=canvas_size,

@@ -21,6 +21,7 @@ def test_extract_code_falls_back_to_raw_sketch():
 def test_count_brush_calls_ignores_setup_calls():
     code = "brush.load(); brush.seed(1); brush.fill('red', 80); brush.circle(0,0,10); brush.fill('blue', 9);"
     assert count_brush_calls(code) == 2
+    assert count_brush_calls(code + " brush.noLoop();") == 2
 
 
 def test_is_blank():
