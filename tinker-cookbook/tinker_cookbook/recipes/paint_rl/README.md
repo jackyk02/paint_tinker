@@ -28,7 +28,7 @@ differ only in how the paintings are scored.
 | Role | Model | Notes |
 |---|---|---|
 | Policy | `thinkingmachines/Inkling-Small` | LoRA rank 32, `tml_v0` renderer, thinking effort 0.7, 8k token budget |
-| Training reward, `verifier` | `thinkingmachines/Inkling-Small` | `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, pairwise round-robin tournament, 2 repeats |
+| Training reward, `verifier` | `thinkingmachines/Inkling-Small` | `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, pairwise round-robin tournament, 4 repeats |
 | Training reward, `judge` | `thinkingmachines/Inkling-Small` | Same endpoint, thinking effort 0.2; absolute 1-5 per painting on each of the verifier's three criteria, averaged; 3 calls per painting |
 | Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; separate from the reward and never trained against |
 
@@ -71,7 +71,7 @@ evaluator defaults live once, in `verifier.py`'s `VerifierConfig`,
 `evaluator.model_name=...`).
 
 Throughput: the whole step is in flight at once. A verifier step is 8 groups
-x 10 pairs x 3 criteria x 2 repeats = 480 calls, and the reward model's
+x 10 pairs x 3 criteria x 4 repeats = 960 calls, and the reward model's
 concurrency (`verifier.max_concurrency`, `judge.max_concurrency`, default
 1200) covers all of them with room to spare; rendering runs one step's 40 sketches at once
 (`render_concurrency=40`, about 4 pages per headless browser); policy
@@ -104,7 +104,7 @@ sampling on Tinker is never throttled.
    drawing calls, and paints a non-blank canvas.
 4. **Score.** With the **verifier**, every unordered pair of the group's
    compiled paintings is compared once per criterion and repeat. A group of 5
-   gives 10 pairs x 3 criteria x 2 repeats = 60 comparisons, and a
+   gives 10 pairs x 3 criteria x 4 repeats = 120 comparisons, and a
    painting's score is its mean grade across every comparison it appears in.
    With the **judge**, each compiled painting gets an integer score 1-5 on
    each of the same three criteria, one call each; its score is the mean,
@@ -137,8 +137,8 @@ reads the distribution from the score tags the model samples itself, rather
 than its prefill path, which would score every comparison as a tie on this
 endpoint.
 
-With the default two repeats per criterion, the second repeat swaps the two
-image slots, so each pair is judged once in each order and the verifier's
+With the default four repeats per criterion, the odd repeats swap the two
+image slots, so each pair is judged twice in each order and the verifier's
 bias toward one position cancels out within each pair. The three criteria are scored separately: content fidelity
 (every named element, count, position and shape), color and style fidelity,
 and watercolor craft and composition.

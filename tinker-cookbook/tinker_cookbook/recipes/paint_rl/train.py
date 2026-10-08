@@ -12,7 +12,7 @@ share every other setting, so their runs can be compared directly on the held-ou
 score from ``eval_checkpoints.py`` (``moonshotai/Kimi-K2.6`` on Tinker, which
 never feeds back into training).
 
-Reward-model knobs are nested: ``verifier.n_evaluations=2``,
+Reward-model knobs are nested: ``verifier.n_evaluations=4``,
 ``judge.effort=0.2``, ``verifier.max_concurrency=1200``, ... (defaults in
 ``verifier.py``). Needs only ``TINKER_API_KEY``.
 """
@@ -70,7 +70,7 @@ class CLIConfig:
     # the same token budget and concurrency (see verifier.py); only the
     # scoring differs.
     reward_mode: RewardMode = "verifier"
-    # Pairwise round-robin tournament, 3 criteria x 2 slot-swapped repeats.
+    # Pairwise round-robin tournament, 3 criteria x 4 slot-swapped repeats.
     verifier: VerifierConfig = chz.field(default_factory=VerifierConfig)
     # Absolute 1-5 score per painting on each of the verifier's three criteria.
     judge: JudgeConfig = chz.field(default_factory=JudgeConfig)

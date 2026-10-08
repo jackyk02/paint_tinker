@@ -93,7 +93,7 @@ def test_reward_config_follows_reward_mode():
     assert (v.model_name, v.effort, v.max_tokens, v.max_concurrency) == (
         j.model_name, j.effort, j.max_tokens, j.max_concurrency,
     )  # fmt: skip
-    assert effort_preset(v.effort) == "low" and v.n_evaluations == 2
+    assert effort_preset(v.effort) == "low" and v.n_evaluations == 4
 
 
 def test_absolute_prompt_asks_for_one_criterion_on_1_to_5():

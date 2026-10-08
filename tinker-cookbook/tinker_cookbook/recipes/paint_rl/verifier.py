@@ -71,8 +71,7 @@ DEFAULT_REWARD_MODEL = "thinkingmachines/Inkling-Small"
 DEFAULT_REWARD_EFFORT = 0.2  # the "low" preset
 DEFAULT_REWARD_MAX_TOKENS = 8192
 # Concurrent calls to the reward model. A verifier step is 8 groups x 10 pairs
-# x 3 criteria x 2 repeats = 480 calls, so the whole step is in flight at once,
-# with headroom for larger batches or more repeats.
+# x 3 criteria x 4 repeats = 960 calls, so the whole step is in flight at once.
 DEFAULT_REWARD_CONCURRENCY = 1200
 
 DEFAULT_EVALUATOR_MODEL = "moonshotai/Kimi-K2.6"
@@ -194,7 +193,7 @@ class VerifierConfig:
     max_tokens: int = DEFAULT_REWARD_MAX_TOKENS
     # Repeated verifications K per criterion. Odd repeats swap the prompt
     # slots, so an even K judges every pair equally often in each order.
-    n_evaluations: int = 2
+    n_evaluations: int = 4
     # Criteria names (keys of DEFAULT_CRITERIA); empty = all of them.
     criteria: tuple[str, ...] = ()
     # Longest image side sent to the model.

@@ -20,7 +20,7 @@ checkpoints. Each cell is the best of that step's five paintings by Gemini score
 | Role | Model | How |
 |---|---|---|
 | Policy | `thinkingmachines/Inkling-Small` | LoRA rank 32 on Tinker, `tml_v0` renderer, thinking effort 0.7, 8k-token budget |
-| Training reward (`reward_mode=verifier`, default) | `thinkingmachines/Inkling-Small` | Self-verification with `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, 2 repeats |
+| Training reward (`reward_mode=verifier`, default) | `thinkingmachines/Inkling-Small` | Self-verification with `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, 4 repeats |
 | Training reward (`reward_mode=judge`) | `thinkingmachines/Inkling-Small` | LLM-as-a-Judge: same endpoint, thinking effort 0.2, an absolute 1-5 score per painting on each of the verifier's three criterion |
 | Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; the judge's prompts, an absolute 1-5 score per held-out painting on each of the three criteria; never part of the reward |
 
@@ -57,7 +57,7 @@ Every knob is in
 | Steps | 200, each 8 prompts x 5 rollouts |
 | Optimizer | importance-sampling policy gradient, group-centered advantages, lr 4e-5 |
 | Reward | `0.05 * compiled + 0.05 * length_ok + 0.90 * score`, in both modes |
-| Verifier | effort 0.2; 3 criteria x 2 slot-swapped repeats, full round robin: 60 calls per group, a whole step (480) in flight |
+| Verifier | effort 0.2; 3 criteria x 4 slot-swapped repeats, full round robin: 120 calls per group, a whole step (960) in flight |
 | Judge | effort 0.2; 3 calls per painting (one per criterion), integers 1-5, mean -> `(s - 1) / 4`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
 | Prompts | 1400: 43 subjects x 8 colors x 4 styles, plus 8 skill prompts x 4 styles; 256 training, 50 held-out spread over every subject |
 | Rendering | 40 sketches at once (one step), ~4 pages per headless browser |
@@ -84,7 +84,8 @@ Every knob is in
    drawing calls, and paints a non-blank canvas.
 4. **Score.** *Verifier:* every pair of compiled paintings in a group is compared on one
    criterion at a time (content fidelity, color and style fidelity, watercolor craft and
-   composition), twice, with the two slots swapped on the second so position bias cancels. The verifier
+   composition), four times, with the two slots swapped on alternate repeats so position
+   bias cancels. The verifier
    grades each painting A-T, and the score is the *expected* grade under its token
    probabilities, not the sampled letter. A painting's score is its mean over the
    comparisons it took part in. *Judge:* each compiled painting is scored 1-5 on each of
