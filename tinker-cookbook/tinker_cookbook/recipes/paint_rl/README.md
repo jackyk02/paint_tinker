@@ -57,7 +57,7 @@ python -m tinker_cookbook.recipes.paint_rl.compare_runs \
 ```
 
 Defaults: 8 prompts x 5 rollouts per step, 200 steps, LoRA rank 32, learning
-rate 4e-5. A checkpoint is saved every 10 steps and kept on Tinker indefinitely
+rate 4e-5. A checkpoint is saved every 5 steps and kept on Tinker indefinitely
 (`checkpoint_ttl_seconds=None`; the cookbook default would expire periodic
 checkpoints after 7 days); they are listed in `<log_path>/checkpoints.jsonl`.
 `hyperparam_utils.get_lr` has no calibrated value for Inkling; 4e-5 worked
@@ -154,7 +154,7 @@ the judge loses.
 ## Held-out evaluation
 
 Held-out evaluation runs in its own process, so it never blocks training and
-training stays on-policy. A checkpoint is saved every 10 steps (kept on Tinker
+training stays on-policy. A checkpoint is saved every 5 steps (kept on Tinker
 indefinitely); `eval_checkpoints.py` follows `checkpoints.jsonl` and
 evaluates the base model and each checkpoint on the 50 held-out prompts:
 the policy samples 5 paintings per prompt, and Kimi-K2.6 scores them

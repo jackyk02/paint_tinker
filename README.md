@@ -61,7 +61,7 @@ Every knob is in
 | Judge | effort 0.2; 1 call per painting, integer 1-10 -> `(s - 1) / 9`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
 | Prompts | 1400: 43 subjects x 8 colors x 4 styles, plus 8 skill prompts x 4 styles; 256 training, 50 held-out spread over every subject |
 | Rendering | 40 sketches at once (one step), ~4 pages per headless browser |
-| Checkpoints | every 10 steps, kept on Tinker indefinitely |
+| Checkpoints | every 5 steps, kept on Tinker indefinitely |
 | Held-out evaluation | separate process, base model + every checkpoint, 50 prompts x 5 paintings, one Kimi-K2.6 call per painting (250 per checkpoint, all in flight) |
 
 ## How it works
