@@ -4,23 +4,26 @@ The system prompt follows the lesson from the "paint with code" project:
 a short, strict allowlist of brush calls constrains the model better than a
 long API reference (which mostly produced hallucinated APIs).
 
-The prompt pool is ``subject x colour x style``. It is built so the verifier
-has something to resolve and the held-out set measures generalisation rather
-than recombination:
+The prompt pool is ``subject x color x style``. It is built so the verifier
+has something to resolve:
 
-* **Subjects are what watercolorists commonly paint**: flowers, animals,
-  still-life objects and scenes, twelve of each, in three difficulty tiers:
-  tier 1 a single subject, tier 2 a subject in a setting, tier 3 two named
-  elements in a spatial relation. Flowers get an equal share; a vague flower
-  is the easiest blob to pass off, so the prompt-adherence criterion asks
-  for an unmistakable, specific depiction.
-* **Colours and styles are visually separable** at 448 px (no golden/ochre,
+* **Subjects are what watercolorists commonly paint**: flowers, still-life
+  objects, scenes and a few animals, in three difficulty tiers: tier 1 a single
+  subject, tier 2 a subject in a setting, tier 3 two named elements in a
+  spatial relation. A vague flower is the easiest blob to pass off, so the
+  prompt-adherence criterion asks for an unmistakable, specific depiction.
+* **Colors and styles are visually separable** at 448 px (no golden/ochre,
   no rose-pink/coral/crimson, no loose/splashy/wet-on-wet near-synonyms), so
-  the colour- and style-fidelity criteria score signal rather than noise.
-* **Two held-out tiers.** ``novel_subject`` prompts use subjects that never
-  appear in training in any form; ``novel_combo`` prompts use seen subjects,
-  colours and styles in an unseen triple. Training prompts are balanced over
-  subjects so no subject is memorised more than another.
+  the color- and style-fidelity criteria score signal rather than noise.
+* **A few skill prompts.** Eight fully worded requests test object counting,
+  spatial relationships, shape and perspective (``SKILL_PROMPTS``). They name
+  their own colors, so each is crossed with the four styles only, and they
+  make up about a tenth of training; the rest is the simple subject base.
+* **Held-out prompts, not held-out subjects.** The held-out set is a sample
+  of the whole pool spread over every subject, color, style and tier; its
+  exact prompts never appear in training, but every subject does. Training
+  prompts are balanced over subjects so no subject is memorized more than
+  another.
 
 The split is deterministic in the seed and pinned by ``prompts_test.py``: a
 change to the pool that moves the held-out set fails the test on purpose.
@@ -34,21 +37,18 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass
 from typing import Literal, TypeVar
 
-CANVAS_SIZE_PLACEHOLDER = "{size}"
-
 SYSTEM_PROMPT_TEMPLATE = """You are a generative artist who paints watercolors with code, using p5.js and the p5.brush library.
 
 Write ONE complete JavaScript sketch that paints the requested subject. Reply with a single ```javascript code block and nothing else.
 
 Hard rules:
 - Define `function setup()` only. No draw() loop, no async code, no images, fonts, fetch, DOM, or external files.
-- setup() must start with exactly: createCanvas({size}, {size}, WEBGL); angleMode(DEGREES); background(<paper colour>); brush.load();
-- setup() must end with noLoop();
-- WEBGL coordinates: (0, 0) is the CENTRE of the canvas. x and y run from -{half} to {half}; y grows downwards.
+- setup() must start with exactly: createCanvas({size}, {size}, WEBGL); angleMode(DEGREES); background(<paper color>); brush.load();
+- WEBGL coordinates: (0, 0) is the CENTER of the canvas. x and y run from -{half} to {half}; y grows downwards.
 - Use ONLY these brush functions (any other brush.* call throws and the painting is lost):
     brush.pick(name)                 name in "2B","HB","2H","cpencil","pen","rotring","spray","marker","marker2","charcoal"
-    brush.stroke(css_colour)  brush.noStroke()  brush.strokeWeight(multiplier)
-    brush.fill(css_colour, opacity_0_to_255)  brush.noFill()
+    brush.stroke(css_color)  brush.noStroke()  brush.strokeWeight(multiplier)
+    brush.fill(css_color, opacity_0_to_255)  brush.noFill()
     brush.bleed(strength_0_to_0.5, "out" or "in")  brush.fillTexture(texture_0_to_1, border_0_to_1)
     brush.line(x1, y1, x2, y2)  brush.circle(x, y, radius)  brush.rect(x, y, w, h)
     brush.polygon([[x, y], ...])  brush.spline([[x, y], ...], curvature_0_to_1)
@@ -57,9 +57,9 @@ Hard rules:
     brush.field(name)                name in "curved","truncated","zigzag","seabed","waves"   brush.noField()
     brush.push()  brush.pop()  brush.seed(number)
 - List the vertices of every filled shape CLOCKWISE, otherwise the watercolor bleed inverts.
-- Plain p5 helpers are fine for maths and colour: random, noise, sin, cos, map, lerp, constrain, color, lerpColor, PI.
+- Plain p5 helpers are fine for maths and color: random, noise, sin, cos, map, lerp, constrain, color, lerpColor, PI.
 
-Painting advice: build the image from several translucent washes (fill opacity 40-120 with bleed 0.1-0.4), let colours overlap and pool, vary edge softness, keep pencil or marker outlines sparse and broken, and fill most of the canvas with a clear, recognisable subject.
+Painting advice: build the image from several translucent washes (fill opacity 40-120 with bleed 0.1-0.4), let colors overlap and pool, vary edge softness, keep pencil or marker outlines sparse and broken, and fill most of the canvas with a clear, recognizable subject.
 """
 
 
@@ -73,13 +73,13 @@ def system_prompt(canvas_size: int) -> str:
 # Subjects
 # ---------------------------------------------------------------------------
 
-Family = Literal["flower", "animal", "object", "scene"]
-PromptKind = Literal["train", "novel_subject", "novel_combo"]
+Family = Literal["flower", "object", "scene", "animal", "skill"]
+PromptKind = Literal["train", "test"]
 
 
 @dataclass(frozen=True)
 class Subject:
-    """``name`` is the noun the colour word attaches to; ``context`` is the rest."""
+    """``name`` is the noun the color word attaches to; ``context`` is the rest."""
 
     name: str
     context: str
@@ -91,9 +91,8 @@ class Subject:
         return f"{self.name} {self.context}".strip()
 
 
-# The four families watercolorists paint most: flowers, animals, still-life
-# objects and scenes, twelve each, every family spanning all three tiers
-# (four single subjects, five in a setting, three pairs).
+# What watercolorists paint most: flowers, still-life objects and scenes,
+# each family spanning all three tiers, plus two animals.
 SUBJECTS: tuple[Subject, ...] = (
     # flowers
     Subject("sunflower", "", 1, "flower"),
@@ -106,23 +105,12 @@ SUBJECTS: tuple[Subject, ...] = (
     Subject("magnolia branch", "in a glass vase", 2, "flower"),
     Subject("bouquet of peonies", "in a ceramic jug", 2, "flower"),
     Subject("wisteria vine", "trailing over a garden gate", 3, "flower"),
-    Subject("hydrangea bush", "beside a white picket fence", 3, "flower"),
     Subject("clump of daffodils", "growing beside a stone birdbath", 3, "flower"),
-    # animals
-    Subject("fox", "", 1, "animal"),
-    Subject("owl", "", 1, "animal"),
-    Subject("koi fish", "", 1, "animal"),
-    Subject("robin", "", 1, "animal"),
-    Subject("heron", "standing in shallow water", 2, "animal"),
-    Subject("cat", "asleep on a windowsill", 2, "animal"),
-    Subject("deer", "grazing in a misty meadow", 2, "animal"),
-    Subject("rabbit", "sitting in tall grass", 2, "animal"),
-    Subject("swan", "gliding across a river", 2, "animal"),
-    Subject("whale", "breaching next to a tiny rowing boat", 3, "animal"),
-    Subject("hummingbird", "hovering beside a trumpet flower", 3, "animal"),
-    Subject("butterfly", "perched on a thistle", 3, "animal"),
+    Subject("field of flowers", "", 1, "flower"),
+    Subject("field of flowers", "on a rolling hillside", 2, "flower"),
+    Subject("field of flowers", "at sunset", 2, "flower"),
+    Subject("field of flowers", "with a path leading to a distant cottage", 3, "flower"),
     # still-life objects
-    Subject("teapot", "", 1, "object"),
     Subject("pear", "", 1, "object"),
     Subject("hot air balloon", "", 1, "object"),
     Subject("watering can", "", 1, "object"),
@@ -131,9 +119,9 @@ SUBJECTS: tuple[Subject, ...] = (
     Subject("bicycle", "leaning against a brick wall", 2, "object"),
     Subject("stack of old books", "on a windowsill", 2, "object"),
     Subject("basket of apples", "on a checked tablecloth", 2, "object"),
-    Subject("teapot", "pouring tea into a cup", 3, "object"),
     Subject("bowl of lemons", "beside a glass bottle", 3, "object"),
     Subject("straw hat", "hanging on a chair beside an open window", 3, "object"),
+    Subject("mailbox", "", 1, "object"),
     # scenes
     Subject("lighthouse", "", 1, "scene"),
     Subject("windmill", "", 1, "scene"),
@@ -142,26 +130,21 @@ SUBJECTS: tuple[Subject, ...] = (
     Subject("mountain lake", "at dawn", 2, "scene"),
     Subject("old oak tree", "alone in a meadow", 2, "scene"),
     Subject("sailboat", "on a calm sea", 2, "scene"),
-    Subject("fishing village", "at sunset", 2, "scene"),
     Subject("birch forest", "in autumn", 2, "scene"),
     Subject("lighthouse", "with a sailboat passing in front of it", 3, "scene"),
     Subject("village street", "leading to a church under a crescent moon", 3, "scene"),
     Subject("stone bridge", "arching over a quiet river", 3, "scene"),
-)
-
-# Held out of training entirely: one subject per family, spanning the tiers,
-# each chosen so its noun appears in no other subject.
-NOVEL_SUBJECTS: frozenset[str] = frozenset(
-    {
-        "hydrangea bush beside a white picket fence",
-        "cat asleep on a windowsill",
-        "pear",
-        "mountain lake at dawn",
-    }
+    Subject("classical building", "with columns and arched windows", 2, "scene"),
+    Subject("creepypasta figure", "lurking at the edge of a foggy forest", 3, "scene"),
+    Subject("Golden Gate Bridge", "", 1, "scene"),
+    Subject("forest path", "in dappled sunlight", 2, "scene"),
+    # animals
+    Subject("flock of birds", "in flight across the sky", 2, "animal"),
+    Subject("fish", "swimming in a clear stream", 2, "animal"),
 )
 
 # Eight hues that stay distinct in a 448 px watercolor.
-COLOURS: tuple[str, ...] = (
+COLORS: tuple[str, ...] = (
     "crimson",
     "coral",
     "golden",
@@ -190,7 +173,7 @@ class PaintPrompt:
     subject: str
     tier: int
     family: str
-    colour: str
+    color: str
     style: str
     kind: PromptKind = "train"
 
@@ -202,13 +185,60 @@ def _article(word: str) -> str:
     return "an" if word[0].lower() in "aeiou" else "a"
 
 
+# (subject name, color) pairs left out of the pool. "a golden Golden Gate
+# Bridge" would read as a typo.
+EXCLUDED_COMBOS: frozenset[tuple[str, str]] = frozenset(
+    {("creepypasta figure", "indigo"), ("Golden Gate Bridge", "golden")}
+)
+
+
+@dataclass(frozen=True)
+class SkillPrompt:
+    """A request that tests one compositional skill, worded in full.
+
+    These carry their own colors, so they are not crossed with COLORS, only
+    with STYLES: each is 4 prompts in the pool, which keeps them a small share
+    of training next to the subject x color x style base.
+    """
+
+    request: str
+    """The request without a style or final period."""
+    category: str
+    tier: int
+
+
+SKILL_PROMPTS: tuple[SkillPrompt, ...] = (
+    SkillPrompt("Paint exactly five red tulips in a vase", "object counting", 2),
+    SkillPrompt("Paint exactly three white sailboats on a calm lake", "object counting", 2),
+    SkillPrompt("Paint a blue vase to the left of a yellow teacup", "spatial relationships", 3),
+    SkillPrompt(
+        "Paint a red apple on top of a stack of two green books", "spatial relationships", 3
+    ),
+    SkillPrompt(
+        "Paint a round ceramic bowl with a narrow base and wide opening", "shape and geometry", 2
+    ),
+    SkillPrompt("Paint a diamond-shaped kite with a long ribbon tail", "shape and geometry", 2),
+    SkillPrompt(
+        "Paint a winding road that becomes narrower toward the horizon", "depth and perspective", 2
+    ),
+    SkillPrompt(
+        "Paint a row of trees along a canal, shrinking into the distance",
+        "depth and perspective",
+        2,
+    ),
+)
+
+
 def build_prompt_pool() -> list[PaintPrompt]:
-    """Every (subject, colour, style) combination, in a fixed order."""
+    """Every (subject, color, style) combination, in a fixed order, minus
+    EXCLUDED_COMBOS, then every skill prompt in each style."""
     prompts: list[PaintPrompt] = []
     for si, subject in enumerate(SUBJECTS):
-        for ci, colour in enumerate(COLOURS):
+        for ci, color in enumerate(COLORS):
+            if (subject.name, color) in EXCLUDED_COMBOS:
+                continue
             for ti, style in enumerate(STYLES):
-                text = f"Paint {_article(colour)} {colour} {subject.phrase} in {style}."
+                text = f"Paint {_article(color)} {color} {subject.phrase} in {style}."
                 prompts.append(
                     PaintPrompt(
                         id=f"s{si:02d}c{ci:02d}t{ti}",
@@ -216,10 +246,24 @@ def build_prompt_pool() -> list[PaintPrompt]:
                         subject=subject.phrase,
                         tier=subject.tier,
                         family=subject.family,
-                        colour=colour,
+                        color=color,
                         style=style,
                     )
                 )
+    for ki, skill in enumerate(SKILL_PROMPTS):
+        for ti, style in enumerate(STYLES):
+            prompts.append(
+                PaintPrompt(
+                    id=f"k{ki:02d}t{ti}",
+                    # The comma keeps "in a vase in layered glazes" unambiguous.
+                    text=f"{skill.request}, in {style}.",
+                    subject=skill.request,
+                    tier=skill.tier,
+                    family="skill",
+                    color="",  # the colors are in the request itself
+                    style=style,
+                )
+            )
     return prompts
 
 
@@ -237,9 +281,9 @@ def _stratified_pick(
 
     Each stratum is shuffled, the strata are shuffled, and items are taken
     round-robin, so counts per stratum differ by at most one. Within a
-    stratum the item whose ``balance`` attributes (e.g. colour, style) have
+    stratum the item whose ``balance`` attributes (e.g. color, style) have
     been used least so far is taken, so a small draw still covers every
-    colour and style rather than landing three sepias and no ink outlines.
+    color and style rather than landing three sepias and no ink outlines.
     """
     strata: dict[object, list[T]] = defaultdict(list)
     for item in items:
@@ -268,48 +312,38 @@ def _stratified_pick(
     return picked
 
 
+# Default split sizes; train.py's CLI uses these too.
+N_TRAIN_PROMPTS = 256
+# Held-out prompts, a sample of the whole pool.
+N_TEST_PROMPTS = 50
+
+
 def build_prompt_splits(
-    n_train: int = 256,
-    n_test_novel_subject: int = 8,
-    n_test_novel_combo: int = 8,
+    n_train: int = N_TRAIN_PROMPTS,
+    n_test: int = N_TEST_PROMPTS,
     seed: int = 0,
 ) -> tuple[list[PaintPrompt], list[PaintPrompt]]:
-    """(train, test) prompt lists; test = novel-subject prompts then novel-combo prompts.
+    """(train, test) prompt lists.
 
-    * novel-subject: drawn from :data:`NOVEL_SUBJECTS`, spread over those subjects;
-      none of these subjects appears in training.
-    * novel-combo: drawn from the remaining subjects, spread over families (then
-      colours, styles and tiers); the exact
-      triple is removed from the training pool.
-    * train: balanced over the remaining subjects.
+    * test: spread over subjects (then colors, styles and tiers), so every
+      subject is evaluated; no subject is held out of training.
+    * train: balanced over subjects, colors and styles, never one of the
+      exact test prompts.
     """
     rng = random.Random(seed)
     pool = build_prompt_pool()
-    novel = [p for p in pool if p.subject in NOVEL_SUBJECTS]
-    known = [p for p in pool if p.subject not in NOVEL_SUBJECTS]
-
-    by_look = (lambda p: p.colour, lambda p: p.style)
-    test_novel = [
-        p.with_kind("novel_subject")
+    by_look = (lambda p: p.color, lambda p: p.style)
+    test = [
+        p.with_kind("test")
         for p in _stratified_pick(
-            novel, n_test_novel_subject, lambda p: p.subject, rng, balance=by_look
+            pool, n_test, lambda p: p.subject, rng, balance=(*by_look, lambda p: p.tier)
         )
     ]
-    test_combo = [
-        p.with_kind("novel_combo")
-        for p in _stratified_pick(
-            known,
-            n_test_novel_combo,
-            lambda p: p.family,
-            rng,
-            balance=(*by_look, lambda p: p.tier),
-        )
-    ]
-    held = {p.id for p in test_combo}
+    held = {p.id for p in test}
     train = _stratified_pick(
-        [p for p in known if p.id not in held], n_train, lambda p: p.subject, rng, balance=by_look
+        [p for p in pool if p.id not in held], n_train, lambda p: p.subject, rng, balance=by_look
     )
-    return train, test_novel + test_combo
+    return train, test
 
 
 def split_summary(prompts: Sequence[PaintPrompt]) -> dict[str, int]:
