@@ -223,6 +223,9 @@ class JudgeConfig:
     # Criteria names (keys of KNOWN_CRITERIA); empty = the verifier's three.
     # Each is its own 1-5 call per painting, and a painting's reward is the mean.
     criteria: tuple[str, ...] = ()
+    # 0: an integer SCORE_MIN-SCORE_MAX per criterion. N: one written letter
+    # from A (best) to the Nth letter instead (e.g. 20 for A-T).
+    letter_grades: int = 0
     # Independent judgments per painting and criterion, averaged.
     n_evaluations: int = 1
     image_size: int = 448
@@ -613,19 +616,55 @@ _ABSOLUTE_PREAMBLE = (
 )
 
 
-def absolute_prompt(problem: str, criterion: tuple[str, str] = OVERALL_CRITERION) -> str:
-    """The 1-5 single-painting prompt, shared by the judge and the held-out evaluator."""
+def absolute_prompt(
+    problem: str, criterion: tuple[str, str] = OVERALL_CRITERION, letter_grades: int = 0
+) -> str:
+    """The single-painting prompt, shared by the judge and the held-out evaluator.
+
+    ``letter_grades=0`` asks for an integer SCORE_MIN-SCORE_MAX; ``N`` asks for
+    one letter from A (outstanding) to the Nth letter (complete failure).
+    """
     name, description = criterion
+    if letter_grades:
+        last = chr(ord("A") + letter_grades - 1)
+        ask = (
+            f'Grade the painting on this criterion ("{name}") with one letter from A '
+            f"(outstanding) to {last} (complete failure), the letters in between "
+            "evenly spaced.\n\n"
+            "Reason it through first, then END your reply with exactly this line and "
+            f"nothing after it, replacing the placeholder with a single letter A-{last}:\n"
+            f"<score> LETTER_A_TO_{last} </score>\n"
+        )
+    else:
+        ask = (
+            f'Score the painting on this criterion ("{name}") from {SCORE_MIN} '
+            f"(complete failure) to {SCORE_MAX} (outstanding).\n\n"
+            "Reason it through first, then END your reply with exactly this line and "
+            f"nothing after it, replacing the placeholder with an integer {SCORE_MIN}-{SCORE_MAX}:\n"
+            f"<score> INTEGER_{SCORE_MIN}_TO_{SCORE_MAX} </score>\n"
+        )
     return (
-        _ABSOLUTE_PREAMBLE + f"\n**Evaluation Guideline — {name}:**\n{description}\n\n"
-        f'Score the painting on this criterion ("{name}") from {SCORE_MIN} '
-        f"(complete failure) to {SCORE_MAX} (outstanding).\n\n"
-        "Reason it through first, then END your reply with exactly this line and "
-        f"nothing after it, replacing the placeholder with an integer {SCORE_MIN}-{SCORE_MAX}:\n"
-        f"<score> INTEGER_{SCORE_MIN}_TO_{SCORE_MAX} </score>\n"
-        f"\n**Task (the painting request):**\n{problem}\n"
+        _ABSOLUTE_PREAMBLE
+        + f"\n**Evaluation Guideline — {name}:**\n{description}\n\n"
+        + ask
+        + f"\n**Task (the painting request):**\n{problem}\n"
         "\nThe painting is attached below.\n\nBegin your analysis now."
     )
+
+
+_LETTER_TAG = re.compile(r"<score>\s*([A-Za-z])\s*</score>")
+
+
+def extract_letter_score(text: str, letter_grades: int) -> float | None:
+    """Last ``<score> X </score>`` letter in the reply in [0, 1]: A is 1, the
+    ``letter_grades``-th letter is 0; None when missing or off the scale."""
+    matches = _LETTER_TAG.findall(text or "")
+    if not matches:
+        return None
+    index = ord(matches[-1].upper()) - ord("A")
+    if not 0 <= index < letter_grades:
+        return None
+    return 1.0 - index / (letter_grades - 1)
 
 
 class AbsoluteJudge(_TinkerOpenAIScorer):
@@ -670,7 +709,8 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
         if n == 0:
             return GroupScores(scores=[])
         criteria = resolve_criteria(self.config.criteria)
-        prompts = {name: absolute_prompt(problem, (name, desc)) for name, desc in criteria}
+        g = self.config.letter_grades
+        prompts = {name: absolute_prompt(problem, (name, desc), g) for name, desc in criteria}
         pngs = [_png_bytes(_fit(im, self.config.image_size)) for im in images]
         jobs = [
             (i, name, rep)
@@ -682,7 +722,7 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
         async def run(job: tuple[int, str, int]) -> tuple[Verdict, bool]:
             i, name, rep = job
             text, truncated = await self._run(self._ask_sync, prompts[name], pngs[i])
-            score = extract_score(text)
+            score = extract_letter_score(text, g) if g else extract_score(text)
             verdict = Verdict(
                 criterion=name,
                 rep=rep,

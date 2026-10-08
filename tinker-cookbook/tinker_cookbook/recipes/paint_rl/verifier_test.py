@@ -155,3 +155,24 @@ def test_letter_scale_can_be_narrowed_per_process():
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr[-2000:]
+
+
+def test_judge_can_grade_with_letters():
+    from tinker_cookbook.recipes.paint_rl.verifier import (
+        OVERALL_CRITERION,
+        absolute_prompt,
+        extract_letter_score,
+    )
+
+    prompt = absolute_prompt("Paint a teal mailbox.", OVERALL_CRITERION, letter_grades=20)
+    assert "<score> LETTER_A_TO_T </score>" in prompt and "INTEGER" not in prompt
+    assert "<score> INTEGER_1_TO_5 </score>" in absolute_prompt("p", OVERALL_CRITERION)
+    assert extract_letter_score("... <score> A </score>", 20) == 1.0
+    assert extract_letter_score("<score>T</score>", 20) == 0.0
+    c = extract_letter_score("<score> c </score>", 20)
+    assert c is not None and abs(c - (1 - 2 / 19)) < 1e-12
+    assert (
+        extract_letter_score("draft <score> T </score> final <score> B </score>", 20) == 1 - 1 / 19
+    )
+    assert extract_letter_score("<score> Z </score>", 20) is None
+    assert extract_letter_score("<score> 7 </score>", 20) is None
