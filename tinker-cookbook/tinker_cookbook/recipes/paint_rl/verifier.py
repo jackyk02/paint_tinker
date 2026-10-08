@@ -202,6 +202,9 @@ class VerifierConfig:
     # reward is the expected grade under the verifier's token distribution.
     # llm_verifier's own scale is 20 (A-T).
     granularity: int = 20
+    # True: the expected grade under the token distribution at each score tag.
+    # False: the letter the verifier wrote, as an absolute judge reads it.
+    use_logprobs: bool = True
     # Criteria names (keys of DEFAULT_CRITERIA); empty = all of them.
     criteria: tuple[str, ...] = ()
     # Longest image side sent to the model.
@@ -432,6 +435,33 @@ def round_robin_pairs(n: int, rng: random.Random) -> list[tuple[int, int]]:
 
 
 _SCALE_IN_USE: int | None = None
+_LOGPROBS_IN_USE: bool | None = None
+
+
+def use_letter_logprobs(enabled: bool) -> None:
+    """Read verifier grades from token logprobs (llm_verifier's default) or not.
+
+    With ``enabled=False``, llm_verifier's score reader is handed no token
+    logprobs, so it falls back to the letter written in the reply. Like the
+    scale, this is process-wide and set once.
+    """
+    global _LOGPROBS_IN_USE
+    if _LOGPROBS_IN_USE is not None:
+        if enabled != _LOGPROBS_IN_USE:
+            raise ValueError("llm_verifier's logprob setting is already fixed in this process")
+        return
+    _LOGPROBS_IN_USE = enabled
+    if enabled:
+        return
+    from llm_verifier import fine_grained_reward as fgr
+
+    extract_score = fgr.extract_score
+
+    def extract_score_from_text(text: str, tokens: Any, position_logprobs: Any, tag: str) -> float:
+        del tokens, position_logprobs  # only the written letter counts
+        return extract_score(text, None, None, tag)
+
+    fgr.extract_score = extract_score_from_text
 
 
 def use_letter_scale(granularity: int) -> None:
@@ -493,6 +523,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
         self._client._llm_verifier_model = config.model_name
         self._client._llm_verifier_deepseek = True
         use_letter_scale(config.granularity)
+        use_letter_logprobs(config.use_logprobs)
 
     def _compare_sync(
         self, problem: str, image_a: bytes, image_b: bytes, criterion: tuple[str, str]

@@ -145,6 +145,12 @@ def test_letter_scale_can_be_narrowed_per_process():
             pass
         else:
             raise AssertionError("a second scale in one process must be refused")
+        from tinker_cookbook.recipes.paint_rl.verifier import use_letter_logprobs
+        use_letter_logprobs(False)
+        # The written letter wins over a logprob distribution that disagrees.
+        text = "<score_A> B </score_A>"
+        assert fgr.extract_score(text, ["<score_A>"], [[("x", 0.0)]] + lp, "<score_A>") == 0.75
+        assert fgr.extract_score("no verdict", None, None, "<score_A>") == 0.5
         """
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
