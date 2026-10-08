@@ -148,12 +148,21 @@ DEFAULT_CRITERIA: dict[str, str] = {
 OVERALL_CRITERION: tuple[str, str] = (
     "Overall Quality",
     "How good is this as a watercolor painting of the request, all things "
-    "considered? Weigh together whether the requested subject is immediately "
-    "recognizable and the color and style words are honored, whether it looks "
-    "like real watercolor on paper (soft bleeding edges, translucent layered "
-    "washes, varied strokes, no flat clip-art fills), and whether the "
-    "composition is pleasant (clear focal point, balanced use of the canvas, "
-    "harmonious color).",
+    "considered? Weigh three things together. Content: every element the "
+    "request names is present and recognizable without reading the prompt "
+    "(the subject, its setting, any second object, any lighting), and every "
+    "stated count, position, shape and depth cue is exactly right. Color and "
+    "style: each named color is clearly on the thing it names, and the "
+    "painting shows the named style's visual signature (a wet-on-wet wash "
+    "blooms and bleeds; minimal watercolor leaves lots of white paper; soft "
+    "ink outlines are delicate lines around loose washes; layered glazes show "
+    "stacked transparent layers). Craft and composition: it looks like real "
+    "watercolor on paper (soft edges, translucent overlapping washes, paper "
+    "texture), with a clear focal point, balanced use of the canvas and "
+    "harmonious color, where deliberate white paper counts as negative space. "
+    "Score HIGH only when all three are strong; score LOW for a generic or "
+    "wrong subject, a wrong count or position, wrong colors or style, or flat "
+    "clip-art fills.",
 )
 
 # What the verifier is told the two "trajectories" are. llm_verifier attaches
