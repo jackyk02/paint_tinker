@@ -37,6 +37,8 @@ from tinker_cookbook.recipes.paint_rl.verifier import (
     RewardMode,
     VerifierConfig,
 )
+from tinker_cookbook.rl.rollout_limits import TerminationRewardPolicy
+from tinker_cookbook.rl.rollout_presets import default_rollout_config_for_model
 from tinker_cookbook.rl.train import AsyncConfig, Config, main
 
 logger = logging.getLogger(__name__)
@@ -114,8 +116,20 @@ class CLIConfig:
     checkpoint_ttl_seconds: int | None = None
     compute_post_kl: bool = False
     remove_constant_reward_groups: bool = False
+    # Cap on scoring one group. A pairwise step queues ~480 reward-model calls,
+    # which can take far longer than the 900 s Inkling preset allows when the
+    # endpoint is busy; a group that hits the cap is dropped from the step.
+    grader_timeout_s: float = 3600.0
     behavior_if_log_dir_exists: cli_utils.LogdirBehavior = "ask"
     base_url: str | None = None
+
+
+def _termination_policy(cli: CLIConfig) -> TerminationRewardPolicy:
+    """The model's default termination policy with this recipe's grading cap."""
+    default = default_rollout_config_for_model(cli.model_name).termination
+    if default is None:
+        return TerminationRewardPolicy(grader_timeout_seconds=cli.grader_timeout_s)
+    return chz.replace(default, grader_timeout_seconds=cli.grader_timeout_s)
 
 
 async def cli_main(cli: CLIConfig) -> None:
@@ -186,6 +200,7 @@ async def cli_main(cli: CLIConfig) -> None:
         # A prompt whose whole group scores the same teaches nothing once the
         # advantages are centered; drop it instead of paying for the backward pass.
         remove_constant_reward_groups=cli.remove_constant_reward_groups,
+        termination=_termination_policy(cli),
     )
     cli_utils.check_log_dir(log_path, behavior_if_exists=cli.behavior_if_log_dir_exists)
     logger.info("Paintings and sketches will be saved under %s", artifact_dir)
