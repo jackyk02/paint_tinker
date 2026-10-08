@@ -137,8 +137,9 @@ endpoint.
 
 With the default two repeats per criterion, the second repeat swaps the two
 image slots, so each pair is judged once in each order and the verifier's
-bias toward one position cancels out within each pair. The three criteria are scored separately: prompt adherence,
-watercolor technique, and composition.
+bias toward one position cancels out within each pair. The three criteria are scored separately: content fidelity
+(every named element, count, position and shape), color and style fidelity,
+and watercolor craft and composition.
 
 ## Verifier vs judge: ties
 

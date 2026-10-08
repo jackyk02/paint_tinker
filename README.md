@@ -83,8 +83,8 @@ Every knob is in
    A sketch *compiles* if it throws no error, makes at least three distinct `brush.*`
    drawing calls, and paints a non-blank canvas.
 4. **Score.** *Verifier:* every pair of compiled paintings in a group is compared on one
-   criterion at a time (prompt adherence, watercolor technique, composition), twice,
-   with the two slots swapped on the second so position bias cancels. The verifier
+   criterion at a time (content fidelity, color and style fidelity, watercolor craft and
+   composition), twice, with the two slots swapped on the second so position bias cancels. The verifier
    grades each painting A-T, and the score is the *expected* grade under its token
    probabilities, not the sampled letter. A painting's score is its mean over the
    comparisons it took part in. *Judge:* each compiled painting is scored once, 1-10, on

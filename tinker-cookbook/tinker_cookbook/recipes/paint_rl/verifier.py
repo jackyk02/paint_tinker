@@ -100,27 +100,46 @@ GROUND_TRUTH_NOTE = (
 )
 
 DEFAULT_CRITERIA: dict[str, str] = {
-    "Prompt Adherence": (
-        "Is the requested subject immediately recognizable to a casual viewer, "
-        "and are the color and style words in the prompt honored? A viewer "
-        "should be able to name the subject without reading the prompt. Score "
-        "HIGH for an unmistakable, specific depiction; score LOW for generic "
-        "blobs, an unrelated subject, or a canvas where the subject must be "
-        "guessed. Ignore painterly polish and composition here."
+    "Content Fidelity": (
+        "Does the painting contain exactly what the request names? The main "
+        "subject must be recognizable to a casual viewer without reading the "
+        "prompt, and every other named element must be there too: the setting "
+        "(a still pond, a picket fence, a path to a distant cottage), any second "
+        "object, and any lighting (dappled sunlight, sunset). Check every stated "
+        "count, position, shape and depth cue literally: exactly five tulips, not "
+        "four or seven; the vase to the left of the teacup, not the right; a bowl "
+        "with a narrow base and a wide opening; a road that narrows toward the "
+        "horizon. Score HIGH only when every named element is present and every "
+        "count, position and shape is right. Score LOW for a generic blob, a "
+        "missing or extra element, a wrong count, or a swapped position. Ignore "
+        "color, painting style and polish."
     ),
-    "Watercolor Technique": (
-        "Does it look like real watercolor on paper: soft bleeding edges, "
-        "layered translucent washes that pool and overlap, visible paper "
-        "texture or granulation, varied stroke pressure, restrained broken "
-        "outlines? Score LOW for flat clip-art fills, hard vector edges, "
-        "uniform opaque shapes, or random scribbles. Ignore whether the "
-        "subject matches the prompt."
+    "Color and Style Fidelity": (
+        "Are the request's color and style words honored? Each named color must "
+        "clearly be that hue on the thing it names: a teal subject is teal, not "
+        'blue or green, and in "a blue vase to the left of a yellow teacup" the '
+        "vase is blue and the teacup yellow. The painting must show the named "
+        "style's visual signature: a wet-on-wet wash has colors blooming and "
+        "bleeding into each other with few hard edges; minimal watercolor with "
+        "lots of white paper uses a few economical washes and leaves large areas "
+        "of paper untouched; watercolor with soft ink outlines has delicate, "
+        "light ink lines around the forms with loose washes; layered watercolor "
+        "glazes show visibly stacked transparent layers whose overlaps deepen "
+        "the color. Score LOW for wrong or swapped colors, or a style other than "
+        "the one requested. Ignore whether the subject is correct and how the "
+        "picture is arranged."
     ),
-    "Composition and Aesthetics": (
-        "Is the picture pleasant to look at: a clear focal point, balanced use "
-        "of the canvas, deliberate negative space, harmonious colors? Score "
-        "LOW for tiny or cut-off subjects, cluttered chaos, muddy color, or "
-        "large empty regions that look unfinished. Ignore subject correctness."
+    "Watercolor Craft and Composition": (
+        "Is this a well-made, pleasant watercolor? Look for real watercolor on "
+        "paper: soft bleeding edges, translucent washes that pool and overlap, "
+        "paper texture or granulation, varied strokes, restrained outlines. Look "
+        "for a clear focal point, the subject at a sensible size, balanced use of "
+        "the canvas, and harmonious color. Untouched paper is a strength when it "
+        "reads as deliberate negative space, and a flaw only when the painting "
+        "looks unfinished. Score LOW for flat clip-art fills, hard vector edges, "
+        "opaque uniform shapes, random scribbles, muddy color, cluttered chaos, "
+        "or tiny or cut-off subjects. Ignore whether the subject, colors and "
+        "style match the request."
     ),
 }
 
