@@ -154,14 +154,20 @@ OVERALL_CRITERION: tuple[str, str] = (
     "painting of the request and LOW for a poor one.",
 )
 
+
 # What the verifier is told the two "trajectories" are. llm_verifier attaches
 # the images in order after the task, so slot A is the first image.
-PAIRWISE_NOTE = (
-    "The candidates are watercolor paintings made by code for the painting "
-    "request in the task, attached as images. A letter grade of A means "
-    "outstanding on the criterion and T means a complete failure, e.g. a blank "
-    "canvas or pure noise. " + GROUND_TRUTH_NOTE
-)
+def pairwise_note(granularity: int = 20) -> str:
+    last = chr(ord("A") + granularity - 1)
+    return (
+        "The candidates are watercolor paintings made by code for the painting "
+        f"request in the task, attached as images. A letter grade of A means "
+        f"outstanding on the criterion and {last} means a complete failure, e.g. "
+        "a blank canvas or pure noise. " + GROUND_TRUTH_NOTE
+    )
+
+
+PAIRWISE_NOTE = pairwise_note()
 SLOT_A = "Painting A: the FIRST attached image."
 SLOT_B = "Painting B: the SECOND attached image."
 
@@ -192,6 +198,10 @@ class VerifierConfig:
     # Repeated verifications K per criterion. Odd repeats swap the prompt
     # slots, so an even K judges every pair equally often in each order.
     n_evaluations: int = 4
+    # Letter grades on the scale, A (best) to the granularity-th letter; the
+    # reward is the expected grade under the verifier's token distribution.
+    # llm_verifier's own scale is 20 (A-T).
+    granularity: int = 20
     # Criteria names (keys of DEFAULT_CRITERIA); empty = all of them.
     criteria: tuple[str, ...] = ()
     # Longest image side sent to the model.
@@ -421,6 +431,53 @@ def round_robin_pairs(n: int, rng: random.Random) -> list[tuple[int, int]]:
     return pairs
 
 
+_SCALE_IN_USE: int | None = None
+
+
+def use_letter_scale(granularity: int) -> None:
+    """Point llm_verifier at an A..<granularity-th letter> grade scale.
+
+    llm_verifier reads its scale (letters, their values, the scale text) and
+    builds its prompt from module-level state on every call, so a process can
+    switch it once, before scoring. One scale per process: a verifier with a
+    different granularity in the same process is refused.
+    """
+    global _SCALE_IN_USE
+    if _SCALE_IN_USE is not None:
+        if granularity != _SCALE_IN_USE:
+            raise ValueError(
+                f"llm_verifier already uses a {_SCALE_IN_USE}-letter scale in this process"
+            )
+        return
+    _SCALE_IN_USE = granularity
+    if granularity == 20:
+        return  # llm_verifier's own scale
+    if not 2 <= granularity <= 26:
+        raise ValueError(f"granularity must be 2-26 letters, got {granularity}")
+    from llm_verifier import fine_grained_reward as fgr
+
+    last = chr(ord("A") + granularity - 1)
+    fgr.GRANULARITY = granularity
+    fgr.SCALE = {
+        "scale_description": (
+            f"Rate each painting on a {granularity}-point scale using letters A "
+            f"through {last}: A = outstanding (best), {last} = a complete "
+            "failure (worst), letters in between evenly spaced."
+        ),
+        "score_format": f"LETTER_A_TO_{last}",
+        "valid_tokens": {
+            **{chr(65 + i): float(granularity - i) for i in range(granularity)},
+            **{chr(97 + i): float(granularity - i) for i in range(granularity)},
+        },
+    }
+    build_prompt = fgr.build_prompt
+
+    def build_prompt_on_scale(*args: Any, **kwargs: Any) -> str:
+        return build_prompt(*args, **kwargs).replace("letter A-T", f"letter A-{last}")
+
+    fgr.build_prompt = build_prompt_on_scale
+
+
 class PairwiseVerifier(_TinkerOpenAIScorer):
     """LLM-as-a-Verifier reward for a group of paintings (round-robin tournament)."""
 
@@ -435,6 +492,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
         os.environ["DEEPSEEK_MAX_TOKENS"] = str(config.max_tokens)
         self._client._llm_verifier_model = config.model_name
         self._client._llm_verifier_deepseek = True
+        use_letter_scale(config.granularity)
 
     def _compare_sync(
         self, problem: str, image_a: bytes, image_b: bytes, criterion: tuple[str, str]
@@ -447,7 +505,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
                 SLOT_B,
                 criteria={name: description},
                 images=[image_a, image_b],
-                ground_truth_note=PAIRWISE_NOTE,
+                ground_truth_note=pairwise_note(self.config.granularity),
                 model=self.config.model_name,
                 client=self._client,
             ),

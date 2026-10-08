@@ -116,3 +116,36 @@ def test_absolute_prompt_asks_for_one_criterion_on_1_to_5():
     assert resolve_criteria(JudgeConfig().criteria) == resolve_criteria(())
     assert OVERALL_CRITERION[0] in absolute_prompt("p", OVERALL_CRITERION)
     assert len(resolve_criteria(VerifierConfig().criteria)) == 3
+
+
+def test_letter_scale_can_be_narrowed_per_process():
+    # use_letter_scale changes llm_verifier for the whole process, so it is
+    # checked in a fresh interpreter to leave the other tests on A-T.
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent(
+        """
+        from llm_verifier import fine_grained_reward as fgr
+        from tinker_cookbook.recipes.paint_rl.verifier import pairwise_note, use_letter_scale
+        use_letter_scale(5)
+        use_letter_scale(5)  # idempotent
+        prompt = fgr.build_prompt("p", "a", "b", {"name": "n", "description": "d"}, pairwise_note(5))
+        assert "letter A-E" in prompt and "LETTER_A_TO_E" in prompt and "A-T" not in prompt, prompt
+        assert "E means a complete failure" in prompt
+        assert fgr.extract_score("<score_A> A </score_A>", None, None, "<score_A>") == 1.0
+        assert fgr.extract_score("<score_A> B </score_A>", None, None, "<score_A>") == 0.75
+        assert fgr.extract_score("<score_A> E </score_A>", None, None, "<score_A>") == 0.0
+        lp = [[("A", -0.6931), ("C", -0.6931)]]  # 50/50 between A (5) and C (3)
+        assert abs(fgr.extract_score("", ["<score_A>"], [[("x", 0.0)]] + lp, "<score_A>") - 0.75) < 1e-3
+        try:
+            use_letter_scale(20)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a second scale in one process must be refused")
+        """
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr[-2000:]
