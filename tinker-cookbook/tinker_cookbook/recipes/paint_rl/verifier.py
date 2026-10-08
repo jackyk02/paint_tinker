@@ -19,8 +19,9 @@ with one is directly comparable to a run with the other:
   painting in its group.
 
 * :class:`AbsoluteJudge` — the LLM-as-a-Judge baseline: each painting is
-  scored on its own, once, on a single overall criterion, as an integer 1-10
-  read from the judge's reply. Paintings with the same integer get the same
+  scored on its own on the verifier's three criteria, one call each, as an
+  integer 1-5 read from the judge's reply, and its reward is the mean of the
+  three. Paintings with the same scores get the same
   reward (and so the same advantage); how often the top of a group is tied is
   reported as ``scorer/top_tie``.
 
@@ -31,8 +32,9 @@ with one is directly comparable to a run with the other:
   score tags (the ``llm_verifier`` path for hosted APIs).
 
 * :class:`HeldoutEvaluator` — the held-out yardstick: ``moonshotai/Kimi-K2.6``
-  on Tinker's native sampler scores each held-out painting on its own, 1-10,
-  with the judge's prompt and single overall criterion. It never trains anything; it gives every checkpoint of every
+  on Tinker's native sampler scores each held-out painting on its own, 1-5
+  on each of the verifier's three criteria, with the judge's prompts. It
+  never trains anything; it gives every checkpoint of every
   run, verifier or judge, a score on one fixed scale.
 """
 
@@ -143,7 +145,7 @@ DEFAULT_CRITERIA: dict[str, str] = {
     ),
 }
 
-# The judge's single overall criterion: the three above, rolled into one.
+# One overall criterion: the three above, rolled into one (criteria=("Overall Quality",)).
 OVERALL_CRITERION: tuple[str, str] = (
     "Overall Quality",
     "How good is this as a watercolor painting of the request, all things "
@@ -203,12 +205,15 @@ class VerifierConfig:
 
 @chz.chz
 class JudgeConfig:
-    """LLM-as-a-Judge baseline: same model, effort and client as the verifier."""
+    """LLM-as-a-Judge baseline: same model, effort, client and criteria as the verifier."""
 
     model_name: str = DEFAULT_REWARD_MODEL
     effort: float = DEFAULT_REWARD_EFFORT
     max_tokens: int = DEFAULT_REWARD_MAX_TOKENS
-    # Independent judgments per painting, averaged. 1 is the classic judge.
+    # Criteria names (keys of KNOWN_CRITERIA); empty = the verifier's three.
+    # Each is its own 1-5 call per painting, and a painting's reward is the mean.
+    criteria: tuple[str, ...] = ()
+    # Independent judgments per painting and criterion, averaged.
     n_evaluations: int = 1
     image_size: int = 448
     max_concurrency: int = DEFAULT_REWARD_CONCURRENCY
@@ -228,12 +233,12 @@ class EvaluatorConfig:
     max_tokens: int = 8192
     temperature: float = 1.0
     n_evaluations: int = 1
-    # The judge's single overall criterion, scored 1-10 in one call per
-    # painting; () scores the three DEFAULT_CRITERIA in separate calls instead.
-    criteria: tuple[str, ...] = (OVERALL_CRITERION[0],)
+    # The verifier's three criteria, each its own 1-5 call per painting, as
+    # the judge scores them; ("Overall Quality",) scores one overall criterion.
+    criteria: tuple[str, ...] = ()
     image_size: int = 448
-    # One checkpoint is 50 prompts x 5 paintings = 250 calls (750 with the
-    # three criteria); 2000 keeps every one of them in flight.
+    # One checkpoint is 50 prompts x 5 paintings x 3 criteria = 750 calls;
+    # 2000 keeps every one of them in flight.
     max_concurrency: int = 2000
     base_url: str | None = None
 
@@ -301,9 +306,9 @@ def _mean_per_painting(verdicts: list[Verdict], n: int, ok: list[bool]) -> list[
 _SCORE_TAG = re.compile(r"<score>\s*(\d+(?:\.\d+)?)\s*</score>", re.IGNORECASE)
 
 
-# The absolute scale the judge and the held-out evaluator score on, the
-# standard LLM-as-a-Judge 1-10.
-SCORE_MIN, SCORE_MAX = 1, 10
+# The absolute scale the judge and the held-out evaluator score each criterion
+# on.
+SCORE_MIN, SCORE_MAX = 1, 5
 
 
 def extract_score(text: str, lo: float = SCORE_MIN, hi: float = SCORE_MAX) -> float | None:
@@ -511,7 +516,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
 
 
 # ---------------------------------------------------------------------------
-# LLM-as-a-Judge: one painting at a time, one overall criterion, 1-10
+# LLM-as-a-Judge: one painting at a time, each criterion 1-5
 # ---------------------------------------------------------------------------
 
 _ABSOLUTE_PREAMBLE = (
@@ -523,7 +528,7 @@ _ABSOLUTE_PREAMBLE = (
 
 
 def absolute_prompt(problem: str, criterion: tuple[str, str] = OVERALL_CRITERION) -> str:
-    """The 1-10 single-painting prompt, shared by the judge and the held-out evaluator."""
+    """The 1-5 single-painting prompt, shared by the judge and the held-out evaluator."""
     name, description = criterion
     return (
         _ABSOLUTE_PREAMBLE + f"\n**Evaluation Guideline — {name}:**\n{description}\n\n"
@@ -538,7 +543,7 @@ def absolute_prompt(problem: str, criterion: tuple[str, str] = OVERALL_CRITERION
 
 
 class AbsoluteJudge(_TinkerOpenAIScorer):
-    """LLM-as-a-Judge reward: each painting scored independently, integer 1-10."""
+    """LLM-as-a-Judge reward: each painting scored independently, integer 1-5 per criterion."""
 
     config: JudgeConfig
 
@@ -572,21 +577,28 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
     async def score_group(
         self, problem: str, images: list[Image.Image], seed: int = 0
     ) -> GroupScores:
-        """Absolute rewards for ``images``; equal integer scores give equal rewards."""
+        """Absolute rewards for ``images``: the mean of each painting's 1-5
+        score per criterion. Equal scores give equal rewards."""
         del seed  # independent scores; nothing to randomize
         n = len(images)
         if n == 0:
             return GroupScores(scores=[])
-        prompt = absolute_prompt(problem)
+        criteria = resolve_criteria(self.config.criteria)
+        prompts = {name: absolute_prompt(problem, (name, desc)) for name, desc in criteria}
         pngs = [_png_bytes(_fit(im, self.config.image_size)) for im in images]
-        jobs = [(i, rep) for i in range(n) for rep in range(self.config.n_evaluations)]
+        jobs = [
+            (i, name, rep)
+            for i in range(n)
+            for name, _ in criteria
+            for rep in range(self.config.n_evaluations)
+        ]
 
-        async def run(job: tuple[int, int]) -> tuple[Verdict, bool]:
-            i, rep = job
-            text, truncated = await self._run(self._ask_sync, prompt, pngs[i])
+        async def run(job: tuple[int, str, int]) -> tuple[Verdict, bool]:
+            i, name, rep = job
+            text, truncated = await self._run(self._ask_sync, prompts[name], pngs[i])
             score = extract_score(text)
             verdict = Verdict(
-                criterion=OVERALL_CRITERION[0],
+                criterion=name,
                 rep=rep,
                 slot_a=i,
                 slot_b=None,
@@ -611,7 +623,7 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
 
 # ---------------------------------------------------------------------------
 # Held-out evaluator: Kimi on Tinker's native sampler, one call per painting and
-# criterion, 0-10
+# criterion, 1-5
 # ---------------------------------------------------------------------------
 
 

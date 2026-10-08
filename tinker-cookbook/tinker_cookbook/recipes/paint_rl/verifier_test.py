@@ -25,8 +25,8 @@ def test_effort_preset():
 
 
 def test_extract_score_uses_last_tag_and_clamps():
-    assert extract_score("<score> 4 </score> ... <score> 10 </score>") == 1.0
-    assert extract_score("<score>12</score>") == 1.0  # clamped to 10
+    assert extract_score("<score> 2 </score> ... <score> 5 </score>") == 1.0
+    assert extract_score("<score>12</score>") == 1.0  # clamped to 5
     assert extract_score("no verdict") is None
 
 
@@ -47,10 +47,10 @@ def test_transient_errors_are_retried():
     assert not _is_transient(RuntimeError("no answer logprobs"))
 
 
-def test_judge_score_maps_1_to_10_onto_unit_interval():
+def test_judge_score_maps_1_to_5_onto_unit_interval():
     assert extract_score("<score> 1 </score>") == 0.0
-    assert extract_score("<score> 5 </score>") == 4 / 9
-    assert extract_score("<score>10</score>") == 1.0
+    assert extract_score("<score> 3 </score>") == 0.5
+    assert extract_score("<score>5</score>") == 1.0
     assert extract_score("<score> 0 </score>") == 0.0  # clamped to 1
     assert extract_score("seven") is None
 
@@ -96,10 +96,11 @@ def test_reward_config_follows_reward_mode():
     assert effort_preset(v.effort) == "low" and v.n_evaluations == 2
 
 
-def test_absolute_prompt_asks_for_one_criterion_on_1_to_10():
+def test_absolute_prompt_asks_for_one_criterion_on_1_to_5():
     from tinker_cookbook.recipes.paint_rl.verifier import (
         OVERALL_CRITERION,
         EvaluatorConfig,
+        JudgeConfig,
         VerifierConfig,
         absolute_prompt,
         resolve_criteria,
@@ -107,10 +108,11 @@ def test_absolute_prompt_asks_for_one_criterion_on_1_to_10():
 
     for criterion in resolve_criteria(()):
         prompt = absolute_prompt("Paint a teal mailbox.", criterion)
-        assert criterion[0] in prompt and "<score> INTEGER_1_TO_10 </score>" in prompt
+        assert criterion[0] in prompt and "<score> INTEGER_1_TO_5 </score>" in prompt
         others = [name for name, _ in resolve_criteria(()) if name != criterion[0]]
         assert not any(name in prompt for name in others)
-    # The held-out evaluator asks exactly what the judge asks.
-    assert resolve_criteria(EvaluatorConfig().criteria) == [OVERALL_CRITERION]
-    assert absolute_prompt("p", OVERALL_CRITERION) == absolute_prompt("p")
+    # The judge and the held-out evaluator both score the verifier's three criteria.
+    assert resolve_criteria(EvaluatorConfig().criteria) == resolve_criteria(())
+    assert resolve_criteria(JudgeConfig().criteria) == resolve_criteria(())
+    assert OVERALL_CRITERION[0] in absolute_prompt("p", OVERALL_CRITERION)
     assert len(resolve_criteria(VerifierConfig().criteria)) == 3

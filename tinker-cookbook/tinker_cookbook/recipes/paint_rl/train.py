@@ -3,7 +3,7 @@
     # LLM-as-a-Verifier reward (pairwise round-robin tournament)
     python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier
 
-    # LLM-as-a-Judge baseline (absolute 1-10 score per painting)
+    # LLM-as-a-Judge baseline (absolute 1-5 score per painting and criterion)
     python -m tinker_cookbook.recipes.paint_rl.train reward_mode=judge log_path=/tmp/paint_rl/judge
 
 The policy is ``thinkingmachines/Inkling-Small`` on Tinker. The reward model
@@ -72,7 +72,7 @@ class CLIConfig:
     reward_mode: RewardMode = "verifier"
     # Pairwise round-robin tournament, 3 criteria x 2 slot-swapped repeats.
     verifier: VerifierConfig = chz.field(default_factory=VerifierConfig)
-    # Absolute 1-10 score per painting on one overall criterion.
+    # Absolute 1-5 score per painting on each of the verifier's three criteria.
     judge: JudgeConfig = chz.field(default_factory=JudgeConfig)
     weights: RewardWeights = chz.field(default_factory=RewardWeights)
 
