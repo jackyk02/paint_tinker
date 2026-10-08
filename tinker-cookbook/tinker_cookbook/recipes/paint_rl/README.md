@@ -173,8 +173,9 @@ neither can be compared across steps or runs; the Kimi score is the fixed
 yardstick. Kimi is asked exactly what the judge is asked: an integer 1-5 on
 each of the verifier's three criteria, one call each, read from its reply;
 a painting's score is the mean, mapped to `(s - 1) / 4` (750 calls per
-checkpoint; `evaluator.criteria='("Overall Quality",)'` scores one overall
-criterion instead). Kimi
+checkpoint; `"evaluator.criteria=Overall Quality"` scores one overall
+criterion instead, and `"judge.criteria=Overall Quality"` does the same for
+the judge). Kimi
 runs on Tinker's native sampler through the cookbook's `kimi_k26` renderer,
 because Tinker's OpenAI-compatible endpoint takes no images for it. A call
 that fails after the SDK's retries is left out (`eval_strong/failed_frac`).
