@@ -21,8 +21,8 @@ checkpoints. Each cell is the best of that step's five paintings by Gemini score
 |---|---|---|
 | Policy | `thinkingmachines/Inkling-Small` | LoRA rank 32 on Tinker, `tml_v0` renderer, thinking effort 0.7, 8k-token budget |
 | Training reward (`reward_mode=verifier`, default) | `thinkingmachines/Inkling-Small` | Self-verification with `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, 2 repeats |
-| Training reward (`reward_mode=judge`) | `thinkingmachines/Inkling-Small` | LLM-as-a-Judge: same endpoint, thinking effort 0.2, one absolute 1-10 score per painting on a single overall criterion |
-| Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; the judge's prompt, one absolute 1-10 score per held-out painting; never part of the reward |
+| Training reward (`reward_mode=judge`) | `thinkingmachines/Inkling-Small` | LLM-as-a-Judge: same endpoint, thinking effort 0.2, an absolute 1-5 score per painting on each of the verifier's three criterion |
+| Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; the judge's prompts, an absolute 1-5 score per held-out painting on each of the three criteria; never part of the reward |
 
 ## Quickstart
 
@@ -58,11 +58,11 @@ Every knob is in
 | Optimizer | importance-sampling policy gradient, group-centered advantages, lr 4e-5 |
 | Reward | `0.05 * compiled + 0.05 * length_ok + 0.90 * score`, in both modes |
 | Verifier | effort 0.2; 3 criteria x 2 slot-swapped repeats, full round robin: 60 calls per group, a whole step (480) in flight |
-| Judge | effort 0.2; 1 call per painting, integer 1-10 -> `(s - 1) / 9`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
+| Judge | effort 0.2; 3 calls per painting (one per criterion), integers 1-5, mean -> `(s - 1) / 4`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
 | Prompts | 1400: 43 subjects x 8 colors x 4 styles, plus 8 skill prompts x 4 styles; 256 training, 50 held-out spread over every subject |
 | Rendering | 40 sketches at once (one step), ~4 pages per headless browser |
-| Checkpoints | every 10 steps, kept on Tinker indefinitely |
-| Held-out evaluation | separate process, base model + every checkpoint, 50 prompts x 5 paintings, one Kimi-K2.6 call per painting (250 per checkpoint, all in flight) |
+| Checkpoints | every 5 steps, kept on Tinker indefinitely |
+| Held-out evaluation | separate process, base model + every checkpoint, 50 prompts x 5 paintings, three Kimi-K2.6 calls per painting, one per criterion (750 per checkpoint, all in flight) |
 
 ## How it works
 
@@ -83,12 +83,12 @@ Every knob is in
    A sketch *compiles* if it throws no error, makes at least three distinct `brush.*`
    drawing calls, and paints a non-blank canvas.
 4. **Score.** *Verifier:* every pair of compiled paintings in a group is compared on one
-   criterion at a time (prompt adherence, watercolor technique, composition), twice,
-   with the two slots swapped on the second so position bias cancels. The verifier
+   criterion at a time (content fidelity, color and style fidelity, watercolor craft and
+   composition), twice, with the two slots swapped on the second so position bias cancels. The verifier
    grades each painting A-T, and the score is the *expected* grade under its token
    probabilities, not the sampled letter. A painting's score is its mean over the
-   comparisons it took part in. *Judge:* each compiled painting is scored once, 1-10, on
-   one overall criterion. In both modes, sketches that did not compile score 0 and sit
+   comparisons it took part in. *Judge:* each compiled painting is scored 1-5 on each of
+   the same three criteria, one call each, and its score is the mean. In both modes, sketches that did not compile score 0 and sit
    out.
 5. **Update.** Rewards are centered within each group and fed to an importance-sampling
    policy gradient (`tinker_cookbook/rl/train.py`).

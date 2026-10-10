@@ -3,7 +3,7 @@
     # LLM-as-a-Verifier reward (pairwise round-robin tournament)
     python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier
 
-    # LLM-as-a-Judge baseline (absolute 1-10 score per painting)
+    # LLM-as-a-Judge baseline (absolute 1-5 score per painting and criterion)
     python -m tinker_cookbook.recipes.paint_rl.train reward_mode=judge log_path=/tmp/paint_rl/judge
 
 The policy is ``thinkingmachines/Inkling-Small`` on Tinker. The reward model
@@ -72,7 +72,7 @@ class CLIConfig:
     reward_mode: RewardMode = "verifier"
     # Pairwise round-robin tournament, 3 criteria x 2 slot-swapped repeats.
     verifier: VerifierConfig = chz.field(default_factory=VerifierConfig)
-    # Absolute 1-10 score per painting on one overall criterion.
+    # Absolute 1-5 score per painting on each of the verifier's three criteria.
     judge: JudgeConfig = chz.field(default_factory=JudgeConfig)
     weights: RewardWeights = chz.field(default_factory=RewardWeights)
 
@@ -105,9 +105,9 @@ class CLIConfig:
     # off by default; run eval_checkpoints.py alongside instead (it evaluates
     # every saved checkpoint in a separate process). Set >0 to evaluate inline.
     eval_every: int = 0
-    # Checkpoint (training state + sampler weights) every 10 steps: 20 over a
-    # 200-step run, the last of them also the final one.
-    save_every: int = 10
+    # Checkpoint (training state + sampler weights) every 5 steps, each one
+    # evaluated on the held-out prompts by eval_checkpoints.py.
+    save_every: int = 5
     # Lifetime of the periodic checkpoints on Tinker, in seconds. None keeps
     # them all indefinitely (the cookbook default expires them after 7 days);
     # the final checkpoint is always kept.

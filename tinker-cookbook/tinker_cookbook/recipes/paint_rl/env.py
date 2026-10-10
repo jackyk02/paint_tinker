@@ -9,7 +9,8 @@ Reward for one rollout (all terms in [0, 1]):
 * ``length_ok`` — the code length sits inside ``[min_code_chars, max_code_chars]``.
 * ``score`` — the reward model's score of the rendered painting: the
   pairwise verifier's tournament score (``reward_mode="verifier"``) or the
-  absolute judge's 1-10 score mapped to [0, 1] (``reward_mode="judge"``); 0
+  absolute judge's mean 1-5 score over the three criteria, mapped to
+  [0, 1] (``reward_mode="judge"``); 0
   for rollouts that failed the compile gate (they are not scored).
 
 Held-out groups are additionally scored by an independent evaluator

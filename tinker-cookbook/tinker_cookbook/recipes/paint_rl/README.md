@@ -19,8 +19,9 @@ is its own verifier: the same base model, sampled at thinking effort 0.2 ("low")
 at the two rendered paintings through its native image input.
 
 `reward_mode=judge` swaps in the classic **LLM-as-a-Judge** baseline: the
-same model at the same effort scores each painting on its own, once, as an
-integer 1-10 on a single overall criterion. Everything else (policy, prompts,
+same model at the same effort scores each painting on its own on the
+verifier's three criteria, one call each, as an integer 1-5, and averages
+them. Everything else (policy, prompts,
 batch, reward weights, token budget, concurrency) is shared, so the two runs
 differ only in how the paintings are scored.
 
@@ -28,7 +29,7 @@ differ only in how the paintings are scored.
 |---|---|---|
 | Policy | `thinkingmachines/Inkling-Small` | LoRA rank 32, `tml_v0` renderer, thinking effort 0.7, 8k token budget |
 | Training reward, `verifier` | `thinkingmachines/Inkling-Small` | `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, pairwise round-robin tournament, 2 repeats |
-| Training reward, `judge` | `thinkingmachines/Inkling-Small` | Same endpoint, thinking effort 0.2; absolute 1-10 per painting, one overall criterion, 1 call |
+| Training reward, `judge` | `thinkingmachines/Inkling-Small` | Same endpoint, thinking effort 0.2; absolute 1-5 per painting on each of the verifier's three criteria, averaged; 3 calls per painting |
 | Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; separate from the reward and never trained against |
 
 ## Running
@@ -57,7 +58,7 @@ python -m tinker_cookbook.recipes.paint_rl.compare_runs \
 ```
 
 Defaults: 8 prompts x 5 rollouts per step, 200 steps, LoRA rank 32, learning
-rate 4e-5. A checkpoint is saved every 10 steps and kept on Tinker indefinitely
+rate 4e-5. A checkpoint is saved every 5 steps and kept on Tinker indefinitely
 (`checkpoint_ttl_seconds=None`; the cookbook default would expire periodic
 checkpoints after 7 days); they are listed in `<log_path>/checkpoints.jsonl`.
 `hyperparam_utils.get_lr` has no calibrated value for Inkling; 4e-5 worked
@@ -105,8 +106,9 @@ sampling on Tinker is never throttled.
    compiled paintings is compared once per criterion and repeat. A group of 5
    gives 10 pairs x 3 criteria x 2 repeats = 60 comparisons, and a
    painting's score is its mean grade across every comparison it appears in.
-   With the **judge**, each compiled painting gets one integer score 1-10,
-   mapped to `(s - 1) / 9`; paintings with equal scores get equal rewards, and
+   With the **judge**, each compiled painting gets an integer score 1-5 on
+   each of the same three criteria, one call each; its score is the mean,
+   mapped to `(s - 1) / 4`. Paintings with equal scores get equal rewards, and
    so equal advantages. Either way, sketches that fail the compile gate score
    0 and are not scored.
 5. **Update.** `reward = 0.05 * compiled + 0.05 * length_ok + 0.90 * score`.
@@ -137,12 +139,13 @@ endpoint.
 
 With the default two repeats per criterion, the second repeat swaps the two
 image slots, so each pair is judged once in each order and the verifier's
-bias toward one position cancels out within each pair. The three criteria are scored separately: prompt adherence,
-watercolor technique, and composition.
+bias toward one position cancels out within each pair. The three criteria are scored separately: content fidelity
+(every named element, count, position and shape), color and style fidelity,
+and watercolor craft and composition.
 
 ## Verifier vs judge: ties
 
-An integer 1-10 judge often gives the best paintings in a group the same
+A judge scoring integers 1-5 often gives the best paintings in a group the same
 score; tied paintings get the same advantage, so the update carries no signal
 between them. `scorer/top_tie` is the fraction of groups (with at least two
 compiled paintings) whose highest score is shared by more than one painting.
@@ -153,7 +156,7 @@ the judge loses.
 ## Held-out evaluation
 
 Held-out evaluation runs in its own process, so it never blocks training and
-training stays on-policy. A checkpoint is saved every 10 steps (kept on Tinker
+training stays on-policy. A checkpoint is saved every 5 steps (kept on Tinker
 indefinitely); `eval_checkpoints.py` follows `checkpoints.jsonl` and
 evaluates the base model and each checkpoint on the 50 held-out prompts:
 the policy samples 5 paintings per prompt, and Kimi-K2.6 scores them
@@ -167,10 +170,11 @@ in `train.py` (default 0) still runs the same evaluation inline if you prefer.
 Kimi's scores never enter the reward. The verifier's reward is relative to
 the other paintings in a group, and the judge's is on its own scale, so
 neither can be compared across steps or runs; the Kimi score is the fixed
-yardstick. Kimi is asked exactly what the judge is asked: one overall score
-per painting, an integer 1-10 read from its reply and mapped to `(s - 1) / 9`,
-in one call per painting (`evaluator.criteria=()` scores the three verifier
-criteria in separate calls instead). Kimi
+yardstick. Kimi is asked exactly what the judge is asked: an integer 1-5 on
+each of the verifier's three criteria, one call each, read from its reply;
+a painting's score is the mean, mapped to `(s - 1) / 4` (750 calls per
+checkpoint; `evaluator.criteria='("Overall Quality",)'` scores one overall
+criterion instead). Kimi
 runs on Tinker's native sampler through the cookbook's `kimi_k26` renderer,
 because Tinker's OpenAI-compatible endpoint takes no images for it. A call
 that fails after the SDK's retries is left out (`eval_strong/failed_frac`).

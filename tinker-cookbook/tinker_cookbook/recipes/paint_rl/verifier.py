@@ -19,8 +19,9 @@ with one is directly comparable to a run with the other:
   painting in its group.
 
 * :class:`AbsoluteJudge` — the LLM-as-a-Judge baseline: each painting is
-  scored on its own, once, on a single overall criterion, as an integer 1-10
-  read from the judge's reply. Paintings with the same integer get the same
+  scored on its own on the verifier's three criteria, one call each, as an
+  integer 1-5 read from the judge's reply, and its reward is the mean of the
+  three. Paintings with the same scores get the same
   reward (and so the same advantage); how often the top of a group is tied is
   reported as ``scorer/top_tie``.
 
@@ -31,8 +32,9 @@ with one is directly comparable to a run with the other:
   score tags (the ``llm_verifier`` path for hosted APIs).
 
 * :class:`HeldoutEvaluator` — the held-out yardstick: ``moonshotai/Kimi-K2.6``
-  on Tinker's native sampler scores each held-out painting on its own, 1-10,
-  with the judge's prompt and single overall criterion. It never trains anything; it gives every checkpoint of every
+  on Tinker's native sampler scores each held-out painting on its own, 1-5
+  on each of the verifier's three criteria, with the judge's prompts. It
+  never trains anything; it gives every checkpoint of every
   run, verifier or judge, a score on one fixed scale.
 """
 
@@ -100,31 +102,50 @@ GROUND_TRUTH_NOTE = (
 )
 
 DEFAULT_CRITERIA: dict[str, str] = {
-    "Prompt Adherence": (
-        "Is the requested subject immediately recognizable to a casual viewer, "
-        "and are the color and style words in the prompt honored? A viewer "
-        "should be able to name the subject without reading the prompt. Score "
-        "HIGH for an unmistakable, specific depiction; score LOW for generic "
-        "blobs, an unrelated subject, or a canvas where the subject must be "
-        "guessed. Ignore painterly polish and composition here."
+    "Content Fidelity": (
+        "Does the painting contain exactly what the request names? The main "
+        "subject must be recognizable to a casual viewer without reading the "
+        "prompt, and every other named element must be there too: the setting "
+        "(a still pond, a picket fence, a path to a distant cottage), any second "
+        "object, and any lighting (dappled sunlight, sunset). Check every stated "
+        "count, position, shape and depth cue literally: exactly five tulips, not "
+        "four or seven; the vase to the left of the teacup, not the right; a bowl "
+        "with a narrow base and a wide opening; a road that narrows toward the "
+        "horizon. Score HIGH only when every named element is present and every "
+        "count, position and shape is right. Score LOW for a generic blob, a "
+        "missing or extra element, a wrong count, or a swapped position. Ignore "
+        "color, painting style and polish."
     ),
-    "Watercolor Technique": (
-        "Does it look like real watercolor on paper: soft bleeding edges, "
-        "layered translucent washes that pool and overlap, visible paper "
-        "texture or granulation, varied stroke pressure, restrained broken "
-        "outlines? Score LOW for flat clip-art fills, hard vector edges, "
-        "uniform opaque shapes, or random scribbles. Ignore whether the "
-        "subject matches the prompt."
+    "Color and Style Fidelity": (
+        "Are the request's color and style words honored? Each named color must "
+        "clearly be that hue on the thing it names: a teal subject is teal, not "
+        'blue or green, and in "a blue vase to the left of a yellow teacup" the '
+        "vase is blue and the teacup yellow. The painting must show the named "
+        "style's visual signature: a wet-on-wet wash has colors blooming and "
+        "bleeding into each other with few hard edges; minimal watercolor with "
+        "lots of white paper uses a few economical washes and leaves large areas "
+        "of paper untouched; watercolor with soft ink outlines has delicate, "
+        "light ink lines around the forms with loose washes; layered watercolor "
+        "glazes show visibly stacked transparent layers whose overlaps deepen "
+        "the color. Score LOW for wrong or swapped colors, or a style other than "
+        "the one requested. Ignore whether the subject is correct and how the "
+        "picture is arranged."
     ),
-    "Composition and Aesthetics": (
-        "Is the picture pleasant to look at: a clear focal point, balanced use "
-        "of the canvas, deliberate negative space, harmonious colors? Score "
-        "LOW for tiny or cut-off subjects, cluttered chaos, muddy color, or "
-        "large empty regions that look unfinished. Ignore subject correctness."
+    "Watercolor Craft and Composition": (
+        "Is this a well-made, pleasant watercolor? Look for real watercolor on "
+        "paper: soft bleeding edges, translucent washes that pool and overlap, "
+        "paper texture or granulation, varied strokes, restrained outlines. Look "
+        "for a clear focal point, the subject at a sensible size, balanced use of "
+        "the canvas, and harmonious color. Untouched paper is a strength when it "
+        "reads as deliberate negative space, and a flaw only when the painting "
+        "looks unfinished. Score LOW for flat clip-art fills, hard vector edges, "
+        "opaque uniform shapes, random scribbles, muddy color, cluttered chaos, "
+        "or tiny or cut-off subjects. Ignore whether the subject, colors and "
+        "style match the request."
     ),
 }
 
-# The judge's single overall criterion: the three above, rolled into one.
+# One overall criterion: the three above, rolled into one (criteria=("Overall Quality",)).
 OVERALL_CRITERION: tuple[str, str] = (
     "Overall Quality",
     "How good is this as a watercolor painting of the request, all things "
@@ -184,12 +205,15 @@ class VerifierConfig:
 
 @chz.chz
 class JudgeConfig:
-    """LLM-as-a-Judge baseline: same model, effort and client as the verifier."""
+    """LLM-as-a-Judge baseline: same model, effort, client and criteria as the verifier."""
 
     model_name: str = DEFAULT_REWARD_MODEL
     effort: float = DEFAULT_REWARD_EFFORT
     max_tokens: int = DEFAULT_REWARD_MAX_TOKENS
-    # Independent judgments per painting, averaged. 1 is the classic judge.
+    # Criteria names (keys of KNOWN_CRITERIA); empty = the verifier's three.
+    # Each is its own 1-5 call per painting, and a painting's reward is the mean.
+    criteria: tuple[str, ...] = ()
+    # Independent judgments per painting and criterion, averaged.
     n_evaluations: int = 1
     image_size: int = 448
     max_concurrency: int = DEFAULT_REWARD_CONCURRENCY
@@ -209,12 +233,12 @@ class EvaluatorConfig:
     max_tokens: int = 8192
     temperature: float = 1.0
     n_evaluations: int = 1
-    # The judge's single overall criterion, scored 1-10 in one call per
-    # painting; () scores the three DEFAULT_CRITERIA in separate calls instead.
-    criteria: tuple[str, ...] = (OVERALL_CRITERION[0],)
+    # The verifier's three criteria, each its own 1-5 call per painting, as
+    # the judge scores them; ("Overall Quality",) scores one overall criterion.
+    criteria: tuple[str, ...] = ()
     image_size: int = 448
-    # One checkpoint is 50 prompts x 5 paintings = 250 calls (750 with the
-    # three criteria); 2000 keeps every one of them in flight.
+    # One checkpoint is 50 prompts x 5 paintings x 3 criteria = 750 calls;
+    # 2000 keeps every one of them in flight.
     max_concurrency: int = 2000
     base_url: str | None = None
 
@@ -282,9 +306,9 @@ def _mean_per_painting(verdicts: list[Verdict], n: int, ok: list[bool]) -> list[
 _SCORE_TAG = re.compile(r"<score>\s*(\d+(?:\.\d+)?)\s*</score>", re.IGNORECASE)
 
 
-# The absolute scale the judge and the held-out evaluator score on, the
-# standard LLM-as-a-Judge 1-10.
-SCORE_MIN, SCORE_MAX = 1, 10
+# The absolute scale the judge and the held-out evaluator score each criterion
+# on.
+SCORE_MIN, SCORE_MAX = 1, 5
 
 
 def extract_score(text: str, lo: float = SCORE_MIN, hi: float = SCORE_MAX) -> float | None:
@@ -492,7 +516,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
 
 
 # ---------------------------------------------------------------------------
-# LLM-as-a-Judge: one painting at a time, one overall criterion, 1-10
+# LLM-as-a-Judge: one painting at a time, each criterion 1-5
 # ---------------------------------------------------------------------------
 
 _ABSOLUTE_PREAMBLE = (
@@ -504,7 +528,7 @@ _ABSOLUTE_PREAMBLE = (
 
 
 def absolute_prompt(problem: str, criterion: tuple[str, str] = OVERALL_CRITERION) -> str:
-    """The 1-10 single-painting prompt, shared by the judge and the held-out evaluator."""
+    """The 1-5 single-painting prompt, shared by the judge and the held-out evaluator."""
     name, description = criterion
     return (
         _ABSOLUTE_PREAMBLE + f"\n**Evaluation Guideline — {name}:**\n{description}\n\n"
@@ -519,7 +543,7 @@ def absolute_prompt(problem: str, criterion: tuple[str, str] = OVERALL_CRITERION
 
 
 class AbsoluteJudge(_TinkerOpenAIScorer):
-    """LLM-as-a-Judge reward: each painting scored independently, integer 1-10."""
+    """LLM-as-a-Judge reward: each painting scored independently, integer 1-5 per criterion."""
 
     config: JudgeConfig
 
@@ -553,21 +577,28 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
     async def score_group(
         self, problem: str, images: list[Image.Image], seed: int = 0
     ) -> GroupScores:
-        """Absolute rewards for ``images``; equal integer scores give equal rewards."""
+        """Absolute rewards for ``images``: the mean of each painting's 1-5
+        score per criterion. Equal scores give equal rewards."""
         del seed  # independent scores; nothing to randomize
         n = len(images)
         if n == 0:
             return GroupScores(scores=[])
-        prompt = absolute_prompt(problem)
+        criteria = resolve_criteria(self.config.criteria)
+        prompts = {name: absolute_prompt(problem, (name, desc)) for name, desc in criteria}
         pngs = [_png_bytes(_fit(im, self.config.image_size)) for im in images]
-        jobs = [(i, rep) for i in range(n) for rep in range(self.config.n_evaluations)]
+        jobs = [
+            (i, name, rep)
+            for i in range(n)
+            for name, _ in criteria
+            for rep in range(self.config.n_evaluations)
+        ]
 
-        async def run(job: tuple[int, int]) -> tuple[Verdict, bool]:
-            i, rep = job
-            text, truncated = await self._run(self._ask_sync, prompt, pngs[i])
+        async def run(job: tuple[int, str, int]) -> tuple[Verdict, bool]:
+            i, name, rep = job
+            text, truncated = await self._run(self._ask_sync, prompts[name], pngs[i])
             score = extract_score(text)
             verdict = Verdict(
-                criterion=OVERALL_CRITERION[0],
+                criterion=name,
                 rep=rep,
                 slot_a=i,
                 slot_b=None,
@@ -592,7 +623,7 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
 
 # ---------------------------------------------------------------------------
 # Held-out evaluator: Kimi on Tinker's native sampler, one call per painting and
-# criterion, 0-10
+# criterion, 1-5
 # ---------------------------------------------------------------------------
 
 
