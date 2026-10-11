@@ -18,7 +18,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from PIL import Image, ImageStat
 
@@ -255,35 +255,60 @@ class SketchRenderer:
             duration_s=time.monotonic() - t0,
         )
 
+    async def _live_browser(self, index: int) -> Any:
+        """The browser in slot ``index``, relaunched first if its process died.
+
+        A crashed Chromium otherwise stays in the pool, and every sketch
+        routed to it would fail.
+        """
+        browser = self._browsers[index]
+        if browser.is_connected():  # type: ignore[attr-defined]
+            return browser
+        async with self._lock:
+            browser = self._browsers[index]
+            if not browser.is_connected():  # type: ignore[attr-defined]
+                assert self._playwright is not None
+                logger.warning("Headless browser %d died; relaunching it", index)
+                browser = await self._playwright.chromium.launch(args=_CHROMIUM_ARGS)
+                self._browsers[index] = browser
+        return browser
+
     async def _render_local(self, page_html: str) -> tuple[str | None, str | None]:
         if not self._browsers:
             await self.start()
-        from playwright.async_api import Browser
-
-        browser = self._browsers[self._next_browser % len(self._browsers)]
+        index = self._next_browser % len(self._browsers)
         self._next_browser += 1
-        assert isinstance(browser, Browser)
-        context = await browser.new_context(
-            viewport={"width": self.canvas_size, "height": self.canvas_size},
-            offline=True,  # no network from inside the sketch
-        )
-        page = await context.new_page()
-        error: str | None = None
-        data_url: str | None = None
-        try:
-            await page.set_content(page_html, timeout=self.timeout_s * 1000)
-            await page.wait_for_function("window.__done === true", timeout=self.timeout_s * 1000)
-            error = await page.evaluate("window.__error")
-            data_url = await page.evaluate(
-                "(() => { const c = document.querySelector('canvas'); "
-                "return c ? c.toDataURL('image/png') : null; })()"
-            )
-        except Exception as e:  # playwright timeouts, crashed pages, ...
-            error = f"render failed: {type(e).__name__}: {str(e).splitlines()[0][:300]}"
-        finally:
-            with contextlib.suppress(Exception):
-                await context.close()
-        return data_url, error
+        # One retry on a relaunched browser if the first one died under us.
+        for attempt in range(2):
+            browser = await self._live_browser(index)
+            context = None
+            error: str | None = None
+            data_url: str | None = None
+            try:
+                context = await browser.new_context(
+                    viewport={"width": self.canvas_size, "height": self.canvas_size},
+                    offline=True,  # no network from inside the sketch
+                )
+                page = await context.new_page()
+                await page.set_content(page_html, timeout=self.timeout_s * 1000)
+                await page.wait_for_function(
+                    "window.__done === true", timeout=self.timeout_s * 1000
+                )
+                error = await page.evaluate("window.__error")
+                data_url = await page.evaluate(
+                    "(() => { const c = document.querySelector('canvas'); "
+                    "return c ? c.toDataURL('image/png') : null; })()"
+                )
+            except Exception as e:  # playwright timeouts, crashed pages or browsers, ...
+                error = f"render failed: {type(e).__name__}: {str(e).splitlines()[0][:300]}"
+                if attempt == 0 and not browser.is_connected():
+                    continue  # the browser died: relaunch it and render again
+            finally:
+                if context is not None:
+                    with contextlib.suppress(Exception):
+                        await context.close()
+            return data_url, error
+        raise AssertionError("unreachable")
 
     async def _render_modal(self, page_html: str) -> tuple[str | None, str | None]:
         if self._modal_fn is None:
