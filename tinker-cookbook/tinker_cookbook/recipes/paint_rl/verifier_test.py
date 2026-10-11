@@ -176,3 +176,19 @@ def test_judge_can_grade_with_letters():
     )
     assert extract_letter_score("<score> Z </score>", 20) is None
     assert extract_letter_score("<score> 7 </score>", 20) is None
+    assert extract_letter_score("<score> J\n\nThat is my grade.", 20) == 1 - 9 / 19
+    assert extract_letter_score("<score> **B** </score>", 20) == 1 - 1 / 19
+    assert extract_letter_score("<score> LETTER_A_TO_T </score>", 20) is None
+
+
+def test_heldout_evaluator_grades_a_to_t_by_default():
+    from tinker_cookbook.recipes.paint_rl.verifier import (
+        EvaluatorConfig,
+        absolute_prompt,
+        resolve_criteria,
+    )
+
+    cfg = EvaluatorConfig()
+    assert cfg.letter_grades == 20 and len(resolve_criteria(cfg.criteria)) == 3
+    prompt = absolute_prompt("p", resolve_criteria(cfg.criteria)[0], cfg.letter_grades)
+    assert "<score> LETTER_A_TO_T </score>" in prompt

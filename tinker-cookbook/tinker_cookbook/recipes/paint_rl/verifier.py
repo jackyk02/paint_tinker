@@ -32,8 +32,9 @@ with one is directly comparable to a run with the other:
   score tags (the ``llm_verifier`` path for hosted APIs).
 
 * :class:`HeldoutEvaluator` — the held-out yardstick: ``moonshotai/Kimi-K2.6``
-  on Tinker's native sampler scores each held-out painting on its own, 1-5
-  on each of the verifier's three criteria, with the judge's prompts. It
+  on Tinker's native sampler scores each held-out painting on its own on each
+  of the verifier's three criteria, one written A-T letter per criterion,
+  with the judge's prompts. It
   never trains anything; it gives every checkpoint of every
   run, verifier or judge, a score on one fixed scale.
 """
@@ -246,9 +247,12 @@ class EvaluatorConfig:
     max_tokens: int = 8192
     temperature: float = 1.0
     n_evaluations: int = 1
-    # The verifier's three criteria, each its own 1-5 call per painting, as
+    # The verifier's three criteria, each its own call per painting, as
     # the judge scores them; ("Overall Quality",) scores one overall criterion.
     criteria: tuple[str, ...] = ()
+    # Each criterion graded with one written letter from A (outstanding) to
+    # the Nth letter (complete failure); 0 asks for an integer 1-5 instead.
+    letter_grades: int = 20
     image_size: int = 448
     # One checkpoint is 50 prompts x 5 paintings x 3 criteria = 750 calls;
     # 2000 keeps every one of them in flight.
@@ -654,7 +658,9 @@ def absolute_prompt(
     )
 
 
-_LETTER_TAG = re.compile(r"<score>\s*([A-Za-z])\s*</score>")
+# A single letter right after <score>, optionally bolded; the letter must
+# stand alone (so "<score> LETTER_A_TO_T" placeholders are not read as "L").
+_LETTER_TAG = re.compile(r"<score>\s*\**\s*([A-Za-z])(?![A-Za-z_])")
 
 
 def extract_letter_score(text: str, letter_grades: int) -> float | None:
@@ -853,7 +859,9 @@ class HeldoutEvaluator:
         per_job = await asyncio.gather(
             *(
                 self._client.ask(
-                    absolute_prompt(problem, crit), fitted[i], self.config.n_evaluations
+                    absolute_prompt(problem, crit, self.config.letter_grades),
+                    fitted[i],
+                    self.config.n_evaluations,
                 )
                 for i, crit in jobs
             )
@@ -862,7 +870,8 @@ class HeldoutEvaluator:
         usable: list[bool] = []
         for (i, (name, _)), replies in zip(jobs, per_job, strict=True):
             for rep, reply in enumerate(replies):
-                score = extract_score(reply.text)
+                g = self.config.letter_grades
+                score = extract_letter_score(reply.text, g) if g else extract_score(reply.text)
                 verdicts.append(
                     Verdict(
                         criterion=name,
