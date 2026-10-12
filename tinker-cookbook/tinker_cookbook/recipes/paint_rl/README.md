@@ -20,8 +20,8 @@ at the two rendered paintings through its native image input.
 
 `reward_mode=judge` swaps in the classic **LLM-as-a-Judge** baseline: the
 same model at the same effort scores each painting on its own on the
-verifier's three criteria, one call each, as an integer 1-5, and averages
-them. Everything else (policy, prompts,
+verifier's three criteria, one call each, as a letter A-J (the standard
+1-10 scale, A best), and averages them. Everything else (policy, prompts,
 batch, reward weights, token budget, concurrency) is shared, so the two runs
 differ only in how the paintings are scored.
 
@@ -29,7 +29,7 @@ differ only in how the paintings are scored.
 |---|---|---|
 | Policy | `thinkingmachines/Inkling-Small` | LoRA rank 32, `tml_v0` renderer, thinking effort 0.7, 8k token budget |
 | Training reward, `verifier` | `thinkingmachines/Inkling-Small` | `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, pairwise round-robin tournament, 4 repeats |
-| Training reward, `judge` | `thinkingmachines/Inkling-Small` | Same endpoint, thinking effort 0.2; absolute 1-5 per painting on each of the verifier's three criteria, averaged; 3 calls per painting |
+| Training reward, `judge` | `thinkingmachines/Inkling-Small` | Same endpoint, thinking effort 0.2; absolute letter A-J (1-10) per painting on each of the verifier's three criteria, averaged; 3 calls per painting |
 | Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; separate from the reward and never trained against |
 
 ## Running
@@ -106,9 +106,9 @@ sampling on Tinker is never throttled.
    compiled paintings is compared once per criterion and repeat. A group of 5
    gives 10 pairs x 3 criteria x 4 repeats = 120 comparisons, and a
    painting's score is its mean grade across every comparison it appears in.
-   With the **judge**, each compiled painting gets an integer score 1-5 on
-   each of the same three criteria, one call each; its score is the mean,
-   mapped to `(s - 1) / 4`. Paintings with equal scores get equal rewards, and
+   With the **judge**, each compiled painting gets a letter grade A-J (10 to
+   1) on each of the same three criteria, one call each; its score is the
+   mean, mapped to `(s - 1) / 9`. Paintings with equal scores get equal rewards, and
    so equal advantages. Either way, sketches that fail the compile gate score
    0 and are not scored.
 5. **Update.** `reward = 0.05 * compiled + 0.05 * length_ok + 0.90 * score`.
@@ -145,7 +145,7 @@ and watercolor craft and composition.
 
 ## Verifier vs judge: ties
 
-A judge scoring integers 1-5 often gives the best paintings in a group the same
+A judge grading on a fixed scale (A-J) often gives the best paintings in a group the same
 score; tied paintings get the same advantage, so the update carries no signal
 between them. `scorer/top_tie` is the fraction of groups (with at least two
 compiled paintings) whose highest score is shared by more than one painting.
@@ -170,9 +170,9 @@ in `train.py` (default 0) still runs the same evaluation inline if you prefer.
 Kimi's scores never enter the reward. The verifier's reward is relative to
 the other paintings in a group, and the judge's is on its own scale, so
 neither can be compared across steps or runs; the Kimi score is the fixed
-yardstick. Kimi is asked exactly what the judge is asked: an integer 1-5 on
+yardstick. Kimi is asked exactly what the judge is asked: a letter A-J (1-10) on
 each of the verifier's three criteria, one call each, read from its reply;
-a painting's score is the mean, mapped to `(s - 1) / 4` (750 calls per
+a painting's score is the mean, normalized to 0-1 as `(s - 1) / 9` (750 calls per
 checkpoint; `"evaluator.criteria=Overall Quality"` scores one overall
 criterion instead, and `"judge.criteria=Overall Quality"` does the same for
 the judge). Kimi

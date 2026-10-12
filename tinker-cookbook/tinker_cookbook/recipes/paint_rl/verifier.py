@@ -19,9 +19,9 @@ with one is directly comparable to a run with the other:
   painting in its group.
 
 * :class:`AbsoluteJudge` — the LLM-as-a-Judge baseline: each painting is
-  scored on its own on the verifier's three criteria, one call each, as an
-  integer 1-5 read from the judge's reply, and its reward is the mean of the
-  three. Paintings with the same scores get the same
+  scored on its own on the verifier's three criteria, one call each, as a
+  written letter A-J (a 1-10 scale, A best) read from the judge's reply and
+  mapped to [0, 1]; its reward is the mean of the three. Paintings with the same scores get the same
   reward (and so the same advantage); how often the top of a group is tied is
   reported as ``scorer/top_tie``.
 
@@ -33,8 +33,8 @@ with one is directly comparable to a run with the other:
 
 * :class:`HeldoutEvaluator` — the held-out yardstick: ``moonshotai/Kimi-K2.6``
   on Tinker's native sampler scores each held-out painting on its own on each
-  of the verifier's three criteria, one written A-T letter per criterion,
-  with the judge's prompts. It
+  of the verifier's three criteria, one written A-J letter per criterion,
+  with the judge's prompts, normalized to [0, 1]. It
   never trains anything; it gives every checkpoint of every
   run, verifier or judge, a score on one fixed scale.
 """
@@ -76,6 +76,11 @@ DEFAULT_REWARD_MAX_TOKENS = 8192
 DEFAULT_REWARD_CONCURRENCY = 1200
 
 DEFAULT_EVALUATOR_MODEL = "moonshotai/Kimi-K2.6"
+
+# The judge's and the held-out evaluator's scale: A-J, a standard 1-10 scale
+# (A = 10 = 1.0, J = 1 = 0.0).
+LETTER_GRADES = 10
+
 TINKER_OPENAI_BASE_URL = "https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1"
 
 # Tinker's named reasoning-effort presets (the OpenAI-compatible endpoint
@@ -222,11 +227,10 @@ class JudgeConfig:
     effort: float = DEFAULT_REWARD_EFFORT
     max_tokens: int = DEFAULT_REWARD_MAX_TOKENS
     # Criteria names (keys of KNOWN_CRITERIA); empty = the verifier's three.
-    # Each is its own 1-5 call per painting, and a painting's reward is the mean.
+    # Each is its own call per painting, and a painting's reward is the mean.
     criteria: tuple[str, ...] = ()
-    # 0: an integer SCORE_MIN-SCORE_MAX per criterion. N: one written letter
-    # from A (best) to the Nth letter instead (e.g. 20 for A-T).
-    letter_grades: int = 0
+    # One written letter per criterion, A (best) to the Nth letter (worst).
+    letter_grades: int = LETTER_GRADES
     # Independent judgments per painting and criterion, averaged.
     n_evaluations: int = 1
     image_size: int = 448
@@ -251,8 +255,8 @@ class EvaluatorConfig:
     # the judge scores them; ("Overall Quality",) scores one overall criterion.
     criteria: tuple[str, ...] = ()
     # Each criterion graded with one written letter from A (outstanding) to
-    # the Nth letter (complete failure); 0 asks for an integer 1-5 instead.
-    letter_grades: int = 20
+    # the Nth letter (complete failure), as the judge grades it.
+    letter_grades: int = LETTER_GRADES
     image_size: int = 448
     # One checkpoint is 50 prompts x 5 paintings x 3 criteria = 750 calls;
     # 2000 keeps every one of them in flight.
@@ -318,22 +322,6 @@ def _mean_per_painting(verdicts: list[Verdict], n: int, ok: list[bool]) -> list[
             total[v.slot_b] += v.score_b
             count[v.slot_b] += 1
     return [total[i] / count[i] if count[i] else 0.5 for i in range(n)]
-
-
-_SCORE_TAG = re.compile(r"<score>\s*(\d+(?:\.\d+)?)\s*</score>", re.IGNORECASE)
-
-
-# The absolute scale the judge and the held-out evaluator score each criterion
-# on.
-SCORE_MIN, SCORE_MAX = 1, 5
-
-
-def extract_score(text: str, lo: float = SCORE_MIN, hi: float = SCORE_MAX) -> float | None:
-    """Last ``<score> n </score>`` in the reply, clamped to [lo, hi] and mapped to [0, 1]."""
-    matches = _SCORE_TAG.findall(text or "")
-    if not matches:
-        return None
-    return (max(lo, min(hi, float(matches[-1]))) - lo) / (hi - lo)
 
 
 # ---------------------------------------------------------------------------
@@ -611,7 +599,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
 
 
 # ---------------------------------------------------------------------------
-# LLM-as-a-Judge: one painting at a time, each criterion 1-5
+# LLM-as-a-Judge: one painting at a time, each criterion graded A-J
 # ---------------------------------------------------------------------------
 
 _ABSOLUTE_PREAMBLE = (
@@ -623,32 +611,22 @@ _ABSOLUTE_PREAMBLE = (
 
 
 def absolute_prompt(
-    problem: str, criterion: tuple[str, str] = OVERALL_CRITERION, letter_grades: int = 0
+    problem: str,
+    criterion: tuple[str, str] = OVERALL_CRITERION,
+    letter_grades: int = LETTER_GRADES,
 ) -> str:
-    """The single-painting prompt, shared by the judge and the held-out evaluator.
-
-    ``letter_grades=0`` asks for an integer SCORE_MIN-SCORE_MAX; ``N`` asks for
-    one letter from A (outstanding) to the Nth letter (complete failure).
-    """
+    """The single-painting prompt, shared by the judge and the held-out evaluator:
+    one letter from A (outstanding) to the ``letter_grades``-th (complete failure)."""
     name, description = criterion
-    if letter_grades:
-        last = chr(ord("A") + letter_grades - 1)
-        ask = (
-            f'Grade the painting on this criterion ("{name}") with one letter from A '
-            f"(outstanding) to {last} (complete failure), the letters in between "
-            "evenly spaced.\n\n"
-            "Reason it through first, then END your reply with exactly this line and "
-            f"nothing after it, replacing the placeholder with a single letter A-{last}:\n"
-            f"<score> LETTER_A_TO_{last} </score>\n"
-        )
-    else:
-        ask = (
-            f'Score the painting on this criterion ("{name}") from {SCORE_MIN} '
-            f"(complete failure) to {SCORE_MAX} (outstanding).\n\n"
-            "Reason it through first, then END your reply with exactly this line and "
-            f"nothing after it, replacing the placeholder with an integer {SCORE_MIN}-{SCORE_MAX}:\n"
-            f"<score> INTEGER_{SCORE_MIN}_TO_{SCORE_MAX} </score>\n"
-        )
+    last = chr(ord("A") + letter_grades - 1)
+    ask = (
+        f'Grade the painting on this criterion ("{name}") with one letter from A '
+        f"(outstanding) to {last} (complete failure), the letters in between "
+        "evenly spaced.\n\n"
+        "Reason it through first, then END your reply with exactly this line and "
+        f"nothing after it, replacing the placeholder with a single letter A-{last}:\n"
+        f"<score> LETTER_A_TO_{last} </score>\n"
+    )
     return (
         _ABSOLUTE_PREAMBLE
         + f"\n**Evaluation Guideline — {name}:**\n{description}\n\n"
@@ -659,11 +637,11 @@ def absolute_prompt(
 
 
 # A single letter right after <score>, optionally bolded; the letter must
-# stand alone (so "<score> LETTER_A_TO_T" placeholders are not read as "L").
+# stand alone (so "<score> LETTER_A_TO_J" placeholders are not read as "L").
 _LETTER_TAG = re.compile(r"<score>\s*\**\s*([A-Za-z])(?![A-Za-z_])")
 
 
-def extract_letter_score(text: str, letter_grades: int) -> float | None:
+def extract_letter_score(text: str, letter_grades: int = LETTER_GRADES) -> float | None:
     """Last ``<score> X </score>`` letter in the reply in [0, 1]: A is 1, the
     ``letter_grades``-th letter is 0; None when missing or off the scale."""
     matches = _LETTER_TAG.findall(text or "")
@@ -676,7 +654,7 @@ def extract_letter_score(text: str, letter_grades: int) -> float | None:
 
 
 class AbsoluteJudge(_TinkerOpenAIScorer):
-    """LLM-as-a-Judge reward: each painting scored independently, integer 1-5 per criterion."""
+    """LLM-as-a-Judge reward: each painting scored independently, one letter per criterion."""
 
     config: JudgeConfig
 
@@ -710,8 +688,8 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
     async def score_group(
         self, problem: str, images: list[Image.Image], seed: int = 0
     ) -> GroupScores:
-        """Absolute rewards for ``images``: the mean of each painting's 1-5
-        score per criterion. Equal scores give equal rewards."""
+        """Absolute rewards for ``images``: the mean of each painting's
+        normalized grade per criterion. Equal grades give equal rewards."""
         del seed  # independent scores; nothing to randomize
         n = len(images)
         if n == 0:
@@ -730,7 +708,7 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
         async def run(job: tuple[int, str, int]) -> tuple[Verdict, bool]:
             i, name, rep = job
             text, truncated = await self._run(self._ask_sync, prompts[name], pngs[i])
-            score = extract_letter_score(text, g) if g else extract_score(text)
+            score = extract_letter_score(text, g)
             verdict = Verdict(
                 criterion=name,
                 rep=rep,
@@ -757,7 +735,7 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
 
 # ---------------------------------------------------------------------------
 # Held-out evaluator: Kimi on Tinker's native sampler, one call per painting and
-# criterion, 1-5
+# criterion, graded A-J
 # ---------------------------------------------------------------------------
 
 
@@ -870,8 +848,7 @@ class HeldoutEvaluator:
         usable: list[bool] = []
         for (i, (name, _)), replies in zip(jobs, per_job, strict=True):
             for rep, reply in enumerate(replies):
-                g = self.config.letter_grades
-                score = extract_letter_score(reply.text, g) if g else extract_score(reply.text)
+                score = extract_letter_score(reply.text, self.config.letter_grades)
                 verdicts.append(
                     Verdict(
                         criterion=name,

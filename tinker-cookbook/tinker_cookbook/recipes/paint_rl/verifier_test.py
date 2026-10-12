@@ -4,7 +4,7 @@ import pytest
 
 from tinker_cookbook.recipes.paint_rl.verifier import (
     effort_preset,
-    extract_score,
+    extract_letter_score,
     round_robin_pairs,
 )
 
@@ -24,10 +24,14 @@ def test_effort_preset():
         effort_preset(0.3)
 
 
-def test_extract_score_uses_last_tag_and_clamps():
-    assert extract_score("<score> 2 </score> ... <score> 5 </score>") == 1.0
-    assert extract_score("<score>12</score>") == 1.0  # clamped to 5
-    assert extract_score("no verdict") is None
+def test_letter_grade_maps_a_to_j_onto_unit_interval():
+    # A-J is a 1-10 scale: A (10) is 1.0, J (1) is 0.0, evenly spaced.
+    assert extract_letter_score("<score> A </score>") == 1.0
+    assert extract_letter_score("<score>J</score>") == 0.0
+    e = extract_letter_score("<score> E </score>")
+    assert e is not None and abs(e - 5 / 9) < 1e-12
+    assert extract_letter_score("<score> K </score>") is None  # off the scale
+    assert extract_letter_score("no verdict") is None
 
 
 def test_transient_errors_are_retried():
@@ -45,14 +49,6 @@ def test_transient_errors_are_retried():
     assert not _is_transient(status(400))
     assert _is_transient(openai.APIConnectionError(request=request))
     assert not _is_transient(RuntimeError("no answer logprobs"))
-
-
-def test_judge_score_maps_1_to_5_onto_unit_interval():
-    assert extract_score("<score> 1 </score>") == 0.0
-    assert extract_score("<score> 3 </score>") == 0.5
-    assert extract_score("<score>5</score>") == 1.0
-    assert extract_score("<score> 0 </score>") == 0.0  # clamped to 1
-    assert extract_score("seven") is None
 
 
 def test_top_is_tied():
@@ -108,7 +104,7 @@ def test_absolute_prompt_asks_for_one_criterion_on_1_to_5():
 
     for criterion in resolve_criteria(()):
         prompt = absolute_prompt("Paint a teal mailbox.", criterion)
-        assert criterion[0] in prompt and "<score> INTEGER_1_TO_5 </score>" in prompt
+        assert criterion[0] in prompt and "<score> LETTER_A_TO_J </score>" in prompt
         others = [name for name, _ in resolve_criteria(()) if name != criterion[0]]
         assert not any(name in prompt for name in others)
     # The judge and the held-out evaluator both score the verifier's three criteria.
@@ -165,8 +161,7 @@ def test_judge_can_grade_with_letters():
     )
 
     prompt = absolute_prompt("Paint a teal mailbox.", OVERALL_CRITERION, letter_grades=20)
-    assert "<score> LETTER_A_TO_T </score>" in prompt and "INTEGER" not in prompt
-    assert "<score> INTEGER_1_TO_5 </score>" in absolute_prompt("p", OVERALL_CRITERION)
+    assert "<score> LETTER_A_TO_T </score>" in prompt and "A-J" not in prompt
     assert extract_letter_score("... <score> A </score>", 20) == 1.0
     assert extract_letter_score("<score>T</score>", 20) == 0.0
     c = extract_letter_score("<score> c </score>", 20)
@@ -181,14 +176,15 @@ def test_judge_can_grade_with_letters():
     assert extract_letter_score("<score> LETTER_A_TO_T </score>", 20) is None
 
 
-def test_heldout_evaluator_grades_a_to_t_by_default():
+def test_judge_and_heldout_evaluator_grade_a_to_j_by_default():
     from tinker_cookbook.recipes.paint_rl.verifier import (
         EvaluatorConfig,
+        JudgeConfig,
         absolute_prompt,
         resolve_criteria,
     )
 
-    cfg = EvaluatorConfig()
-    assert cfg.letter_grades == 20 and len(resolve_criteria(cfg.criteria)) == 3
-    prompt = absolute_prompt("p", resolve_criteria(cfg.criteria)[0], cfg.letter_grades)
-    assert "<score> LETTER_A_TO_T </score>" in prompt
+    for cfg in (EvaluatorConfig(), JudgeConfig()):
+        assert cfg.letter_grades == 10 and len(resolve_criteria(cfg.criteria)) == 3
+        prompt = absolute_prompt("p", resolve_criteria(cfg.criteria)[0], cfg.letter_grades)
+        assert "<score> LETTER_A_TO_J </score>" in prompt and "A-J" in prompt

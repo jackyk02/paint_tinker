@@ -21,8 +21,8 @@ checkpoints. Each cell is the best of that step's five paintings by Gemini score
 |---|---|---|
 | Policy | `thinkingmachines/Inkling-Small` | LoRA rank 32 on Tinker, `tml_v0` renderer, thinking effort 0.7, 8k-token budget |
 | Training reward (`reward_mode=verifier`, default) | `thinkingmachines/Inkling-Small` | Self-verification with `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, 4 repeats |
-| Training reward (`reward_mode=judge`) | `thinkingmachines/Inkling-Small` | LLM-as-a-Judge: same endpoint, thinking effort 0.2, an absolute 1-5 score per painting on each of the verifier's three criterion |
-| Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; the judge's prompts, an absolute 1-5 score per held-out painting on each of the three criteria; never part of the reward |
+| Training reward (`reward_mode=judge`) | `thinkingmachines/Inkling-Small` | LLM-as-a-Judge: same endpoint, thinking effort 0.2, an absolute letter grade A-J (1-10) per painting on each of the verifier's three criteria |
+| Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; the judge's prompts, an absolute letter grade A-J (1-10) per held-out painting on each of the three criteria, normalized to 0-1; never part of the reward |
 
 ## Quickstart
 
@@ -58,7 +58,7 @@ Every knob is in
 | Optimizer | importance-sampling policy gradient, group-centered advantages, lr 4e-5 |
 | Reward | `0.05 * compiled + 0.05 * length_ok + 0.90 * score`, in both modes |
 | Verifier | effort 0.2; 3 criteria x 4 slot-swapped repeats, full round robin: 120 calls per group, a whole step (960) in flight |
-| Judge | effort 0.2; 3 calls per painting (one per criterion), integers 1-5, mean -> `(s - 1) / 4`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
+| Judge | effort 0.2; 3 calls per painting (one per criterion), letters A-J (10 to 1), mean -> `(s - 1) / 9`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
 | Prompts | 1400: 43 subjects x 8 colors x 4 styles, plus 8 skill prompts x 4 styles; 256 training, 50 held-out spread over every subject |
 | Rendering | 40 sketches at once (one step), ~4 pages per headless browser |
 | Checkpoints | every 5 steps, kept on Tinker indefinitely |
@@ -88,7 +88,7 @@ Every knob is in
    bias cancels. The verifier
    grades each painting A-T, and the score is the *expected* grade under its token
    probabilities, not the sampled letter. A painting's score is its mean over the
-   comparisons it took part in. *Judge:* each compiled painting is scored 1-5 on each of
+   comparisons it took part in. *Judge:* each compiled painting is graded A-J (a 1-10 scale) on each of
    the same three criteria, one call each, and its score is the mean. In both modes, sketches that did not compile score 0 and sit
    out.
 5. **Update.** Rewards are centered within each group and fed to an importance-sampling
