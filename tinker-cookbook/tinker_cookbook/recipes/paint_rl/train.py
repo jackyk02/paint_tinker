@@ -3,7 +3,7 @@
     # LLM-as-a-Verifier reward (pairwise round-robin tournament)
     python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier
 
-    # LLM-as-a-Judge baseline (absolute 1-10 score per painting)
+    # LLM-as-a-Judge baseline (absolute A-J grade per painting and criterion)
     python -m tinker_cookbook.recipes.paint_rl.train reward_mode=judge log_path=/tmp/paint_rl/judge
 
 The policy is ``thinkingmachines/Inkling-Small`` on Tinker. The reward model
@@ -12,7 +12,7 @@ share every other setting, so their runs can be compared directly on the held-ou
 score from ``eval_checkpoints.py`` (``moonshotai/Kimi-K2.6`` on Tinker, which
 never feeds back into training).
 
-Reward-model knobs are nested: ``verifier.n_evaluations=2``,
+Reward-model knobs are nested: ``verifier.n_evaluations=4``,
 ``judge.effort=0.2``, ``verifier.max_concurrency=1200``, ... (defaults in
 ``verifier.py``). Needs only ``TINKER_API_KEY``.
 """
@@ -37,6 +37,8 @@ from tinker_cookbook.recipes.paint_rl.verifier import (
     RewardMode,
     VerifierConfig,
 )
+from tinker_cookbook.rl.rollout_limits import TerminationRewardPolicy
+from tinker_cookbook.rl.rollout_presets import default_rollout_config_for_model
 from tinker_cookbook.rl.train import AsyncConfig, Config, main
 
 logger = logging.getLogger(__name__)
@@ -60,7 +62,7 @@ class CLIConfig:
     # Each step: 8 prompts x 5 rollouts.
     group_size: int = 5
     groups_per_batch: int = 8
-    max_steps: int = 200
+    max_steps: int = 400
     num_substeps: int = 1
     kl_penalty_coef: float = 0.0
     loss_fn: LossFnType = "importance_sampling"
@@ -70,9 +72,9 @@ class CLIConfig:
     # the same token budget and concurrency (see verifier.py); only the
     # scoring differs.
     reward_mode: RewardMode = "verifier"
-    # Pairwise round-robin tournament, 3 criteria x 2 slot-swapped repeats.
+    # Pairwise round-robin tournament, 3 criteria x 4 slot-swapped repeats.
     verifier: VerifierConfig = chz.field(default_factory=VerifierConfig)
-    # Absolute 1-10 score per painting on one overall criterion.
+    # Absolute A-J grade (1-10) per painting on each of the verifier's three criteria.
     judge: JudgeConfig = chz.field(default_factory=JudgeConfig)
     weights: RewardWeights = chz.field(default_factory=RewardWeights)
 
@@ -105,17 +107,29 @@ class CLIConfig:
     # off by default; run eval_checkpoints.py alongside instead (it evaluates
     # every saved checkpoint in a separate process). Set >0 to evaluate inline.
     eval_every: int = 0
-    # Checkpoint (training state + sampler weights) every 10 steps: 20 over a
-    # 200-step run, the last of them also the final one.
-    save_every: int = 10
+    # Checkpoint (training state + sampler weights) every 5 steps, each one
+    # evaluated on the held-out prompts by eval_checkpoints.py.
+    save_every: int = 5
     # Lifetime of the periodic checkpoints on Tinker, in seconds. None keeps
     # them all indefinitely (the cookbook default expires them after 7 days);
     # the final checkpoint is always kept.
     checkpoint_ttl_seconds: int | None = None
     compute_post_kl: bool = False
     remove_constant_reward_groups: bool = False
+    # Cap on scoring one group. A pairwise step queues ~480 reward-model calls,
+    # which can take far longer than the 900 s Inkling preset allows when the
+    # endpoint is busy; a group that hits the cap is dropped from the step.
+    grader_timeout_s: float = 3600.0
     behavior_if_log_dir_exists: cli_utils.LogdirBehavior = "ask"
     base_url: str | None = None
+
+
+def _termination_policy(cli: CLIConfig) -> TerminationRewardPolicy:
+    """The model's default termination policy with this recipe's grading cap."""
+    default = default_rollout_config_for_model(cli.model_name).termination
+    if default is None:
+        return TerminationRewardPolicy(grader_timeout_seconds=cli.grader_timeout_s)
+    return chz.replace(default, grader_timeout_seconds=cli.grader_timeout_s)
 
 
 async def cli_main(cli: CLIConfig) -> None:
@@ -186,6 +200,7 @@ async def cli_main(cli: CLIConfig) -> None:
         # A prompt whose whole group scores the same teaches nothing once the
         # advantages are centered; drop it instead of paying for the backward pass.
         remove_constant_reward_groups=cli.remove_constant_reward_groups,
+        termination=_termination_policy(cli),
     )
     cli_utils.check_log_dir(log_path, behavior_if_exists=cli.behavior_if_log_dir_exists)
     logger.info("Paintings and sketches will be saved under %s", artifact_dir)

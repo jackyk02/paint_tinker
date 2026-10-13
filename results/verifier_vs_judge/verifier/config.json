@@ -5,32 +5,41 @@
     "renderer_name": "tml_v0",
     "batch_size": 8,
     "group_size": 5,
-    "n_batches": 1000,
+    "n_batches": 400,
     "policy_effort": 0.7,
     "reward_mode": "verifier",
-    "judge_config": {
+    "verifier_config": {
       "model_name": "thinkingmachines/Inkling-Small",
-      "backend": "tinker",
       "effort": 0.2,
       "max_tokens": 8192,
-      "temperature": 1.0,
-      "n_evaluations": 2,
+      "n_evaluations": 4,
+      "granularity": 20,
+      "use_logprobs": true,
       "criteria": [],
       "image_size": 448,
-      "max_concurrency": 480,
+      "max_concurrency": 1200,
       "base_url": null
     },
-    "eval_reward_mode": "judge",
-    "eval_judge_config": {
-      "model_name": "gemini-3.8-flash",
-      "backend": "gemini",
+    "judge_config": {
+      "model_name": "thinkingmachines/Inkling-Small",
       "effort": 0.2,
+      "max_tokens": 8192,
+      "criteria": [],
+      "letter_grades": 0,
+      "n_evaluations": 1,
+      "image_size": 448,
+      "max_concurrency": 1200,
+      "base_url": null
+    },
+    "evaluator_config": {
+      "model_name": "moonshotai/Kimi-K2.6",
+      "renderer_name": null,
       "max_tokens": 8192,
       "temperature": 1.0,
       "n_evaluations": 1,
       "criteria": [],
       "image_size": 448,
-      "max_concurrency": 50,
+      "max_concurrency": 2000,
       "base_url": null
     },
     "weights": {
@@ -41,26 +50,26 @@
       "max_code_chars": 8000
     },
     "canvas_size": 512,
-    "render_concurrency": 16,
+    "render_concurrency": 40,
     "render_backend": "local",
     "render_timeout_s": 300.0,
     "n_train_prompts": 256,
-    "n_test_prompts": 16,
+    "n_test_prompts": 50,
     "test_group_size": 5,
     "seed": 0,
-    "artifact_dir": "/tmp/paint_rl/verifier/paintings"
+    "artifact_dir": "/tmp/paint_rl/v6_verifier/paintings"
   },
   "model_name": "thinkingmachines/Inkling-Small",
   "recipe_name": "recipe_paint_rl",
   "max_tokens": 8192,
-  "log_path": "/tmp/paint_rl/verifier",
+  "log_path": "/tmp/paint_rl/v6_verifier",
   "eval_every": 0,
   "save_every": 5,
   "evaluator_builders": [],
   "load_checkpoint_path": null,
   "renderer_name": "tml_v0",
   "wandb_project": null,
-  "wandb_name": "paint-verifier-Inkling-Small-r32-lr4e-05-g5x8-2026-10-05-08-09",
+  "wandb_name": "paint-verifier-Inkling-Small-r32-lr4e-05-g5x8-2026-10-11-20-08",
   "kl_penalty_coef": 0.0,
   "kl_discount_factor": 0.0,
   "kl_reference_config": null,
@@ -72,7 +81,19 @@
   "compute_post_kl": false,
   "remove_constant_reward_groups": false,
   "rollout_error_tolerance": null,
-  "termination": null,
+  "termination": {
+    "zero_reward_on_limit": true,
+    "limit_stop_reasons": [
+      "max_tokens",
+      "max_sampled_tokens",
+      "max_turns",
+      "max_tool_calls",
+      "rollout_timeout"
+    ],
+    "skip_grading_on_timeout": true,
+    "grader_timeout_seconds": 3600.0,
+    "pass_all_messages_to_grader": false
+  },
   "enable_trace": false,
   "span_chart_every": 0,
   "async_config": null,
@@ -83,5 +104,5 @@
   "rolling_ttl_seconds": 7200,
   "num_groups_to_log": 4,
   "rollout_json_export": true,
-  "max_steps": 1000
+  "max_steps": 400
 }

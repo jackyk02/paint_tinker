@@ -69,7 +69,7 @@ class Config:
     # The training run to evaluate (its config.json and checkpoints.jsonl).
     log_path: str
     # Evaluate checkpoints whose step is a multiple of this (the final one always).
-    every: int = 10
+    every: int = 5
     include_base: bool = True
     # Keep polling checkpoints.jsonl until the final checkpoint has been evaluated.
     follow: bool = True

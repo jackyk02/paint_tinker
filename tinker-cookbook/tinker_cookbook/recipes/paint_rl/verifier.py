@@ -19,8 +19,9 @@ with one is directly comparable to a run with the other:
   painting in its group.
 
 * :class:`AbsoluteJudge` — the LLM-as-a-Judge baseline: each painting is
-  scored on its own, once, on a single overall criterion, as an integer 1-10
-  read from the judge's reply. Paintings with the same integer get the same
+  scored on its own on the verifier's three criteria, one call each, as a
+  written letter A-J (a 1-10 scale, A best) read from the judge's reply and
+  mapped to [0, 1]; its reward is the mean of the three. Paintings with the same scores get the same
   reward (and so the same advantage); how often the top of a group is tied is
   reported as ``scorer/top_tie``.
 
@@ -31,8 +32,10 @@ with one is directly comparable to a run with the other:
   score tags (the ``llm_verifier`` path for hosted APIs).
 
 * :class:`HeldoutEvaluator` — the held-out yardstick: ``moonshotai/Kimi-K2.6``
-  on Tinker's native sampler scores each held-out painting on its own, 1-10,
-  with the judge's prompt and single overall criterion. It never trains anything; it gives every checkpoint of every
+  on Tinker's native sampler scores each held-out painting on its own on each
+  of the verifier's three criteria, one written A-J letter per criterion,
+  with the judge's prompts, normalized to [0, 1]. It
+  never trains anything; it gives every checkpoint of every
   run, verifier or judge, a score on one fixed scale.
 """
 
@@ -69,11 +72,15 @@ DEFAULT_REWARD_MODEL = "thinkingmachines/Inkling-Small"
 DEFAULT_REWARD_EFFORT = 0.2  # the "low" preset
 DEFAULT_REWARD_MAX_TOKENS = 8192
 # Concurrent calls to the reward model. A verifier step is 8 groups x 10 pairs
-# x 3 criteria x 2 repeats = 480 calls, so the whole step is in flight at once,
-# with headroom for larger batches or more repeats.
+# x 3 criteria x 4 repeats = 960 calls, so the whole step is in flight at once.
 DEFAULT_REWARD_CONCURRENCY = 1200
 
 DEFAULT_EVALUATOR_MODEL = "moonshotai/Kimi-K2.6"
+
+# The judge's and the held-out evaluator's scale: A-J, a standard 1-10 scale
+# (A = 10 = 1.0, J = 1 = 0.0).
+LETTER_GRADES = 10
+
 TINKER_OPENAI_BASE_URL = "https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1"
 
 # Tinker's named reasoning-effort presets (the OpenAI-compatible endpoint
@@ -100,66 +107,75 @@ GROUND_TRUTH_NOTE = (
 )
 
 DEFAULT_CRITERIA: dict[str, str] = {
-    "Prompt Adherence": (
-        "Is the requested subject immediately recognizable to a casual viewer, "
-        "and are the color and style words in the prompt honored? A viewer "
-        "should be able to name the subject without reading the prompt. Score "
-        "HIGH for an unmistakable, specific depiction; score LOW for generic "
-        "blobs, an unrelated subject, or a canvas where the subject must be "
-        "guessed. Ignore painterly polish and composition here."
+    "Content Fidelity": (
+        "Does the painting contain exactly what the request names? The main "
+        "subject must be recognizable to a casual viewer without reading the "
+        "prompt, and every other named element must be there too: the setting "
+        "(a still pond, a picket fence, a path to a distant cottage), any second "
+        "object, and any lighting (dappled sunlight, sunset). Check every stated "
+        "count, position, shape and depth cue literally: exactly five tulips, not "
+        "four or seven; the vase to the left of the teacup, not the right; a bowl "
+        "with a narrow base and a wide opening; a road that narrows toward the "
+        "horizon. Score HIGH only when every named element is present and every "
+        "count, position and shape is right. Score LOW for a generic blob, a "
+        "missing or extra element, a wrong count, or a swapped position. Ignore "
+        "color, painting style and polish."
     ),
-    "Watercolor Technique": (
-        "Does it look like real watercolor on paper: soft bleeding edges, "
-        "layered translucent washes that pool and overlap, visible paper "
-        "texture or granulation, varied stroke pressure, restrained broken "
-        "outlines? Score LOW for flat clip-art fills, hard vector edges, "
-        "uniform opaque shapes, or random scribbles. Ignore whether the "
-        "subject matches the prompt."
+    "Color and Style Fidelity": (
+        "Are the request's color and style words honored? Each named color must "
+        "clearly be that hue on the thing it names: a teal subject is teal, not "
+        'blue or green, and in "a blue vase to the left of a yellow teacup" the '
+        "vase is blue and the teacup yellow. The painting must show the named "
+        "style's visual signature: a wet-on-wet wash has colors blooming and "
+        "bleeding into each other with few hard edges; minimal watercolor with "
+        "lots of white paper uses a few economical washes and leaves large areas "
+        "of paper untouched; watercolor with soft ink outlines has delicate, "
+        "light ink lines around the forms with loose washes; layered watercolor "
+        "glazes show visibly stacked transparent layers whose overlaps deepen "
+        "the color. Score LOW for wrong or swapped colors, or a style other than "
+        "the one requested. Ignore whether the subject is correct and how the "
+        "picture is arranged."
     ),
-    "Composition and Aesthetics": (
-        "Is the picture pleasant to look at: a clear focal point, balanced use "
-        "of the canvas, deliberate negative space, harmonious colors? Score "
-        "LOW for tiny or cut-off subjects, cluttered chaos, muddy color, or "
-        "large empty regions that look unfinished. Ignore subject correctness."
+    "Watercolor Craft and Composition": (
+        "Is this a well-made, pleasant watercolor? Look for real watercolor on "
+        "paper: soft bleeding edges, translucent washes that pool and overlap, "
+        "paper texture or granulation, varied strokes, restrained outlines. Look "
+        "for a clear focal point, the subject at a sensible size, balanced use of "
+        "the canvas, and harmonious color. Untouched paper is a strength when it "
+        "reads as deliberate negative space, and a flaw only when the painting "
+        "looks unfinished. Score LOW for flat clip-art fills, hard vector edges, "
+        "opaque uniform shapes, random scribbles, muddy color, cluttered chaos, "
+        "or tiny or cut-off subjects. Ignore whether the subject, colors and "
+        "style match the request."
     ),
 }
 
-# The judge's single overall criterion: the three above, rolled into one.
-OVERALL_CRITERION: tuple[str, str] = (
-    "Overall Quality",
-    "How good is this as a watercolor painting of the request, all things "
-    "considered? Weigh together whether the requested subject is immediately "
-    "recognizable and the color and style words are honored, whether it looks "
-    "like real watercolor on paper (soft bleeding edges, translucent layered "
-    "washes, varied strokes, no flat clip-art fills), and whether the "
-    "composition is pleasant (clear focal point, balanced use of the canvas, "
-    "harmonious color).",
-)
 
 # What the verifier is told the two "trajectories" are. llm_verifier attaches
 # the images in order after the task, so slot A is the first image.
-PAIRWISE_NOTE = (
-    "The candidates are watercolor paintings made by code for the painting "
-    "request in the task, attached as images. A letter grade of A means "
-    "outstanding on the criterion and T means a complete failure, e.g. a blank "
-    "canvas or pure noise. " + GROUND_TRUTH_NOTE
-)
+def pairwise_note(granularity: int = 20) -> str:
+    last = chr(ord("A") + granularity - 1)
+    return (
+        "The candidates are watercolor paintings made by code for the painting "
+        f"request in the task, attached as images. A letter grade of A means "
+        f"outstanding on the criterion and {last} means a complete failure, e.g. "
+        "a blank canvas or pure noise. " + GROUND_TRUTH_NOTE
+    )
+
+
+PAIRWISE_NOTE = pairwise_note()
 SLOT_A = "Painting A: the FIRST attached image."
 SLOT_B = "Painting B: the SECOND attached image."
 
 
-# Every criterion a scorer can be asked for, by name.
-KNOWN_CRITERIA: dict[str, str] = {**DEFAULT_CRITERIA, OVERALL_CRITERION[0]: OVERALL_CRITERION[1]}
-
-
 def resolve_criteria(names: tuple[str, ...]) -> list[tuple[str, str]]:
-    """``(name, description)`` for ``names`` (keys of KNOWN_CRITERIA); empty = the
-    three DEFAULT_CRITERIA."""
+    """``(name, description)`` for ``names`` (keys of DEFAULT_CRITERIA); empty = all
+    three."""
     selected = list(names) or list(DEFAULT_CRITERIA)
-    missing = [n for n in selected if n not in KNOWN_CRITERIA]
+    missing = [n for n in selected if n not in DEFAULT_CRITERIA]
     if missing:
-        raise ValueError(f"unknown criteria {missing}; known: {list(KNOWN_CRITERIA)}")
-    return [(n, KNOWN_CRITERIA[n]) for n in selected]
+        raise ValueError(f"unknown criteria {missing}; known: {list(DEFAULT_CRITERIA)}")
+    return [(n, DEFAULT_CRITERIA[n]) for n in selected]
 
 
 @chz.chz
@@ -173,7 +189,14 @@ class VerifierConfig:
     max_tokens: int = DEFAULT_REWARD_MAX_TOKENS
     # Repeated verifications K per criterion. Odd repeats swap the prompt
     # slots, so an even K judges every pair equally often in each order.
-    n_evaluations: int = 2
+    n_evaluations: int = 4
+    # Letter grades on the scale, A (best) to the granularity-th letter; the
+    # reward is the expected grade under the verifier's token distribution.
+    # llm_verifier's own scale is 20 (A-T).
+    granularity: int = 20
+    # True: the expected grade under the token distribution at each score tag.
+    # False: the letter the verifier wrote, as an absolute judge reads it.
+    use_logprobs: bool = True
     # Criteria names (keys of DEFAULT_CRITERIA); empty = all of them.
     criteria: tuple[str, ...] = ()
     # Longest image side sent to the model.
@@ -184,12 +207,17 @@ class VerifierConfig:
 
 @chz.chz
 class JudgeConfig:
-    """LLM-as-a-Judge baseline: same model, effort and client as the verifier."""
+    """LLM-as-a-Judge baseline: same model, effort, client and criteria as the verifier."""
 
     model_name: str = DEFAULT_REWARD_MODEL
     effort: float = DEFAULT_REWARD_EFFORT
     max_tokens: int = DEFAULT_REWARD_MAX_TOKENS
-    # Independent judgments per painting, averaged. 1 is the classic judge.
+    # Criteria names (keys of DEFAULT_CRITERIA); empty = the verifier's three.
+    # Each is its own call per painting, and a painting's reward is the mean.
+    criteria: tuple[str, ...] = ()
+    # One written letter per criterion, A (best) to the Nth letter (worst).
+    letter_grades: int = LETTER_GRADES
+    # Independent judgments per painting and criterion, averaged.
     n_evaluations: int = 1
     image_size: int = 448
     max_concurrency: int = DEFAULT_REWARD_CONCURRENCY
@@ -209,12 +237,15 @@ class EvaluatorConfig:
     max_tokens: int = 8192
     temperature: float = 1.0
     n_evaluations: int = 1
-    # The judge's single overall criterion, scored 1-10 in one call per
-    # painting; () scores the three DEFAULT_CRITERIA in separate calls instead.
-    criteria: tuple[str, ...] = (OVERALL_CRITERION[0],)
+    # The verifier's three criteria, each its own call per painting, as
+    # the judge scores them.
+    criteria: tuple[str, ...] = ()
+    # Each criterion graded with one written letter from A (outstanding) to
+    # the Nth letter (complete failure), as the judge grades it.
+    letter_grades: int = LETTER_GRADES
     image_size: int = 448
-    # One checkpoint is 50 prompts x 5 paintings = 250 calls (750 with the
-    # three criteria); 2000 keeps every one of them in flight.
+    # One checkpoint is 50 prompts x 5 paintings x 3 criteria = 750 calls;
+    # 2000 keeps every one of them in flight.
     max_concurrency: int = 2000
     base_url: str | None = None
 
@@ -279,22 +310,6 @@ def _mean_per_painting(verdicts: list[Verdict], n: int, ok: list[bool]) -> list[
     return [total[i] / count[i] if count[i] else 0.5 for i in range(n)]
 
 
-_SCORE_TAG = re.compile(r"<score>\s*(\d+(?:\.\d+)?)\s*</score>", re.IGNORECASE)
-
-
-# The absolute scale the judge and the held-out evaluator score on, the
-# standard LLM-as-a-Judge 1-10.
-SCORE_MIN, SCORE_MAX = 1, 10
-
-
-def extract_score(text: str, lo: float = SCORE_MIN, hi: float = SCORE_MAX) -> float | None:
-    """Last ``<score> n </score>`` in the reply, clamped to [lo, hi] and mapped to [0, 1]."""
-    matches = _SCORE_TAG.findall(text or "")
-    if not matches:
-        return None
-    return (max(lo, min(hi, float(matches[-1]))) - lo) / (hi - lo)
-
-
 # ---------------------------------------------------------------------------
 # Tinker's OpenAI-compatible endpoint, shared by the verifier and the judge
 # ---------------------------------------------------------------------------
@@ -354,9 +369,11 @@ def make_tinker_openai_client(base_url: str | None, max_concurrency: int) -> Any
         base_url=base_url or TINKER_OPENAI_BASE_URL,
         api_key=key,
         max_retries=5,
-        # A call takes 5-60 s; the occasional request that hangs on the
-        # endpoint is retried after 5 min instead of stalling the step.
-        timeout=300.0,
+        # A call takes 5-60 s when the endpoint is idle but queues for minutes
+        # under load. Don't time those out: a re-sent call joins the back of the
+        # same queue, which grows it until whole steps hit the grading cap. This
+        # only catches a dead connection, with one retry still inside the cap.
+        timeout=1800.0,
         # The default pool (1000 connections) would queue part of a step.
         http_client=DefaultHttpxClient(
             limits=httpx.Limits(
@@ -400,6 +417,80 @@ def round_robin_pairs(n: int, rng: random.Random) -> list[tuple[int, int]]:
     return pairs
 
 
+_SCALE_IN_USE: int | None = None
+_LOGPROBS_IN_USE: bool | None = None
+
+
+def use_letter_logprobs(enabled: bool) -> None:
+    """Read verifier grades from token logprobs (llm_verifier's default) or not.
+
+    With ``enabled=False``, llm_verifier's score reader is handed no token
+    logprobs, so it falls back to the letter written in the reply. Like the
+    scale, this is process-wide and set once.
+    """
+    global _LOGPROBS_IN_USE
+    if _LOGPROBS_IN_USE is not None:
+        if enabled != _LOGPROBS_IN_USE:
+            raise ValueError("llm_verifier's logprob setting is already fixed in this process")
+        return
+    _LOGPROBS_IN_USE = enabled
+    if enabled:
+        return
+    from llm_verifier import fine_grained_reward as fgr
+
+    extract_score = fgr.extract_score
+
+    def extract_score_from_text(text: str, tokens: Any, position_logprobs: Any, tag: str) -> float:
+        del tokens, position_logprobs  # only the written letter counts
+        return extract_score(text, None, None, tag)
+
+    fgr.extract_score = extract_score_from_text
+
+
+def use_letter_scale(granularity: int) -> None:
+    """Point llm_verifier at an A..<granularity-th letter> grade scale.
+
+    llm_verifier reads its scale (letters, their values, the scale text) and
+    builds its prompt from module-level state on every call, so a process can
+    switch it once, before scoring. One scale per process: a verifier with a
+    different granularity in the same process is refused.
+    """
+    global _SCALE_IN_USE
+    if _SCALE_IN_USE is not None:
+        if granularity != _SCALE_IN_USE:
+            raise ValueError(
+                f"llm_verifier already uses a {_SCALE_IN_USE}-letter scale in this process"
+            )
+        return
+    _SCALE_IN_USE = granularity
+    if granularity == 20:
+        return  # llm_verifier's own scale
+    if not 2 <= granularity <= 26:
+        raise ValueError(f"granularity must be 2-26 letters, got {granularity}")
+    from llm_verifier import fine_grained_reward as fgr
+
+    last = chr(ord("A") + granularity - 1)
+    fgr.GRANULARITY = granularity
+    fgr.SCALE = {
+        "scale_description": (
+            f"Rate each painting on a {granularity}-point scale using letters A "
+            f"through {last}: A = outstanding (best), {last} = a complete "
+            "failure (worst), letters in between evenly spaced."
+        ),
+        "score_format": f"LETTER_A_TO_{last}",
+        "valid_tokens": {
+            **{chr(65 + i): float(granularity - i) for i in range(granularity)},
+            **{chr(97 + i): float(granularity - i) for i in range(granularity)},
+        },
+    }
+    build_prompt = fgr.build_prompt
+
+    def build_prompt_on_scale(*args: Any, **kwargs: Any) -> str:
+        return build_prompt(*args, **kwargs).replace("letter A-T", f"letter A-{last}")
+
+    fgr.build_prompt = build_prompt_on_scale
+
+
 class PairwiseVerifier(_TinkerOpenAIScorer):
     """LLM-as-a-Verifier reward for a group of paintings (round-robin tournament)."""
 
@@ -414,6 +505,8 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
         os.environ["DEEPSEEK_MAX_TOKENS"] = str(config.max_tokens)
         self._client._llm_verifier_model = config.model_name
         self._client._llm_verifier_deepseek = True
+        use_letter_scale(config.granularity)
+        use_letter_logprobs(config.use_logprobs)
 
     def _compare_sync(
         self, problem: str, image_a: bytes, image_b: bytes, criterion: tuple[str, str]
@@ -426,7 +519,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
                 SLOT_B,
                 criteria={name: description},
                 images=[image_a, image_b],
-                ground_truth_note=PAIRWISE_NOTE,
+                ground_truth_note=pairwise_note(self.config.granularity),
                 model=self.config.model_name,
                 client=self._client,
             ),
@@ -492,7 +585,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
 
 
 # ---------------------------------------------------------------------------
-# LLM-as-a-Judge: one painting at a time, one overall criterion, 1-10
+# LLM-as-a-Judge: one painting at a time, each criterion graded A-J
 # ---------------------------------------------------------------------------
 
 _ABSOLUTE_PREAMBLE = (
@@ -503,23 +596,51 @@ _ABSOLUTE_PREAMBLE = (
 )
 
 
-def absolute_prompt(problem: str, criterion: tuple[str, str] = OVERALL_CRITERION) -> str:
-    """The 1-10 single-painting prompt, shared by the judge and the held-out evaluator."""
+def absolute_prompt(
+    problem: str,
+    criterion: tuple[str, str],
+    letter_grades: int = LETTER_GRADES,
+) -> str:
+    """The single-painting prompt, shared by the judge and the held-out evaluator:
+    one letter from A (outstanding) to the ``letter_grades``-th (complete failure)."""
     name, description = criterion
-    return (
-        _ABSOLUTE_PREAMBLE + f"\n**Evaluation Guideline — {name}:**\n{description}\n\n"
-        f'Score the painting on this criterion ("{name}") from {SCORE_MIN} '
-        f"(complete failure) to {SCORE_MAX} (outstanding).\n\n"
+    last = chr(ord("A") + letter_grades - 1)
+    ask = (
+        f'Grade the painting on this criterion ("{name}") with one letter from A '
+        f"(outstanding) to {last} (complete failure), the letters in between "
+        "evenly spaced.\n\n"
         "Reason it through first, then END your reply with exactly this line and "
-        f"nothing after it, replacing the placeholder with an integer {SCORE_MIN}-{SCORE_MAX}:\n"
-        f"<score> INTEGER_{SCORE_MIN}_TO_{SCORE_MAX} </score>\n"
-        f"\n**Task (the painting request):**\n{problem}\n"
+        f"nothing after it, replacing the placeholder with a single letter A-{last}:\n"
+        f"<score> LETTER_A_TO_{last} </score>\n"
+    )
+    return (
+        _ABSOLUTE_PREAMBLE
+        + f"\n**Evaluation Guideline — {name}:**\n{description}\n\n"
+        + ask
+        + f"\n**Task (the painting request):**\n{problem}\n"
         "\nThe painting is attached below.\n\nBegin your analysis now."
     )
 
 
+# A single letter right after <score>, optionally bolded; the letter must
+# stand alone (so "<score> LETTER_A_TO_J" placeholders are not read as "L").
+_LETTER_TAG = re.compile(r"<score>\s*\**\s*([A-Za-z])(?![A-Za-z_])")
+
+
+def extract_letter_score(text: str, letter_grades: int = LETTER_GRADES) -> float | None:
+    """Last ``<score> X </score>`` letter in the reply in [0, 1]: A is 1, the
+    ``letter_grades``-th letter is 0; None when missing or off the scale."""
+    matches = _LETTER_TAG.findall(text or "")
+    if not matches:
+        return None
+    index = ord(matches[-1].upper()) - ord("A")
+    if not 0 <= index < letter_grades:
+        return None
+    return 1.0 - index / (letter_grades - 1)
+
+
 class AbsoluteJudge(_TinkerOpenAIScorer):
-    """LLM-as-a-Judge reward: each painting scored independently, integer 1-10."""
+    """LLM-as-a-Judge reward: each painting scored independently, one letter per criterion."""
 
     config: JudgeConfig
 
@@ -553,21 +674,29 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
     async def score_group(
         self, problem: str, images: list[Image.Image], seed: int = 0
     ) -> GroupScores:
-        """Absolute rewards for ``images``; equal integer scores give equal rewards."""
+        """Absolute rewards for ``images``: the mean of each painting's
+        normalized grade per criterion. Equal grades give equal rewards."""
         del seed  # independent scores; nothing to randomize
         n = len(images)
         if n == 0:
             return GroupScores(scores=[])
-        prompt = absolute_prompt(problem)
+        criteria = resolve_criteria(self.config.criteria)
+        g = self.config.letter_grades
+        prompts = {name: absolute_prompt(problem, (name, desc), g) for name, desc in criteria}
         pngs = [_png_bytes(_fit(im, self.config.image_size)) for im in images]
-        jobs = [(i, rep) for i in range(n) for rep in range(self.config.n_evaluations)]
+        jobs = [
+            (i, name, rep)
+            for i in range(n)
+            for name, _ in criteria
+            for rep in range(self.config.n_evaluations)
+        ]
 
-        async def run(job: tuple[int, int]) -> tuple[Verdict, bool]:
-            i, rep = job
-            text, truncated = await self._run(self._ask_sync, prompt, pngs[i])
-            score = extract_score(text)
+        async def run(job: tuple[int, str, int]) -> tuple[Verdict, bool]:
+            i, name, rep = job
+            text, truncated = await self._run(self._ask_sync, prompts[name], pngs[i])
+            score = extract_letter_score(text, g)
             verdict = Verdict(
-                criterion=OVERALL_CRITERION[0],
+                criterion=name,
                 rep=rep,
                 slot_a=i,
                 slot_b=None,
@@ -592,7 +721,7 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
 
 # ---------------------------------------------------------------------------
 # Held-out evaluator: Kimi on Tinker's native sampler, one call per painting and
-# criterion, 0-10
+# criterion, graded A-J
 # ---------------------------------------------------------------------------
 
 
@@ -669,9 +798,8 @@ class _TinkerVisionClient:
 class HeldoutEvaluator:
     """Independent absolute scores per painting and criterion, no pairing.
 
-    By default there is one criterion, the judge's overall one, so each
-    painting is one request; with several criteria each is its own request,
-    so one criterion's reasoning never colors another's. All of a group's requests are submitted at once (and
+    Each criterion is its own request, so one criterion's reasoning never
+    colors another's. All of a group's requests are submitted at once (and
     every group's, since groups are evaluated concurrently), up to
     ``max_concurrency`` in flight; ``n_evaluations`` repeats come from
     ``num_samples`` on the same request.
@@ -694,7 +822,9 @@ class HeldoutEvaluator:
         per_job = await asyncio.gather(
             *(
                 self._client.ask(
-                    absolute_prompt(problem, crit), fitted[i], self.config.n_evaluations
+                    absolute_prompt(problem, crit, self.config.letter_grades),
+                    fitted[i],
+                    self.config.n_evaluations,
                 )
                 for i, crit in jobs
             )
@@ -703,7 +833,7 @@ class HeldoutEvaluator:
         usable: list[bool] = []
         for (i, (name, _)), replies in zip(jobs, per_job, strict=True):
             for rep, reply in enumerate(replies):
-                score = extract_score(reply.text)
+                score = extract_letter_score(reply.text, self.config.letter_grades)
                 verdicts.append(
                     Verdict(
                         criterion=name,
