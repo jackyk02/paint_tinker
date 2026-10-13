@@ -9,11 +9,10 @@ under otherwise identical settings. The task
 follows ["Training AI to Paint with Code"](https://surya.website/rling-qwen-to-paint-with-code);
 the reward follows [LLM-as-a-Verifier](https://github.com/llm-as-a-verifier/llm-as-a-verifier).
 
-![paintings early to late](results/examples_early_to_late.png)
+![best-of-5 paintings](results/best_of_5_examples.png)
 
-*From the [earlier run](#earlier-run): two training prompts as they came round during
-the run, and one held-out prompt (never trained on) at three checkpoints. Each cell is
-the best of that step's five paintings by Gemini score.*
+*New requests painted by the step-400 checkpoint with [test-time best-of-5](#test-time-best-of-5):
+five sketches per request, and base Inkling-Small picked the one shown.*
 
 ## Models
 
@@ -139,29 +138,40 @@ of prompts where at least one painting averages 8/10 or better (0.78 on 0-1).
 and every checkpoint's Tinker `state_path` and `sampler_path` with its held-out
 scores. The checkpoints are kept on Tinker indefinitely.
 
-### Earlier run
+## Test-time best-of-5
 
-An earlier version of the recipe (a different prompt pool, 16 held-out prompts and
-`gemini-3.8-flash` as the held-out evaluator, integer 0-10 per criterion) was run
-with the verifier only, to step 470. Its numbers are not comparable with the run above.
+For deployment, `best_of_n.py` samples five sketches from a checkpoint, renders them,
+and lets base Inkling-Small pick one with the same pairwise tournament that rewarded
+training. Sketches that fail to render are never picked.
 
-![held-out curves](results/heldout_curves.png)
+```bash
+python -m tinker_cookbook.recipes.paint_rl.best_of_n \
+    model_path=tinker://<run id>/sampler_weights/000400 \
+    "prompts.0=Paint a red fox curled up in the snow, in loose watercolor washes." \
+    out_dir=/tmp/paint_rl/best_of_n
+```
 
-![held-out prompts across checkpoints](results/heldout_checkpoints.png)
+On the step-400 checkpoint's held-out paintings (50 prompts x 5), the verifier's pick
+scores higher with Kimi than a random one:
 
-*Two held-out prompts at six checkpoints. Each cell is the best of that checkpoint's five
-paintings by Gemini score, with the mean of all five below it.*
+| Held-out Kimi score (0-1) | |
+|---|---|
+| Random painting of the five (the plain policy) | 0.712 |
+| Verifier's pick (best-of-5) | **0.752** |
+| Best of the five by Kimi (oracle) | 0.841 |
 
-| Held-out | step 0 (base) | step 470 |
-|---|---|---|
-| Gemini score, all paintings (failed sketch = 0) | 3.24 / 10 | 5.35 / 10 |
-| Gemini score, compiled paintings only | 4.25 / 10 | 5.35 / 10 |
-| Compile rate | 76% | 100% |
+The verifier picks Kimi's favorite in 32% of prompts (20% by chance). The step-400
+adapter is on the Hugging Face Hub as
+[`jackyk02/inkling-small-paint-rl-verifier-step400`](https://huggingface.co/jackyk02/inkling-small-paint-rl-verifier-step400).
 
-Quality kept rising after compiling was solved: the compile rate reached ~100% by
-step 100, and the compiled-only score kept climbing after it. Novel-subject prompts
-improved as much as novel combinations of seen ones. `results/run/` holds that run's
-`config.json`, training `metrics.jsonl` and `heldout_metrics.jsonl`.
+`web/server.py` serves the same pipeline as a small web studio: a visitor types a
+request (or opens an example), and the page shows all five paintings, their verifier
+scores, the code and the pick.
+
+```bash
+python -m tinker_cookbook.recipes.paint_rl.web.server \
+    model_path=tinker://<run id>/sampler_weights/000400 port=8765
+```
 
 ## Outputs
 
@@ -191,4 +201,4 @@ the outputs into an HTML gallery, per-step best-painting sheets and comparison c
 | `tinker-cookbook/tinker_cookbook/recipes/paint_rl/` | the recipe |
 | `setup.sh` | installs the vendored cookbook with the `paint-rl` extra (`llm-verifier`, `openai`, `playwright`) and Chromium |
 | `.env.example` | the credentials the run needs |
-| `results/` | `verifier_vs_judge/`: configs, metrics and checkpoint paths of the verifier and judge runs; the earlier run's figures and metrics |
+| `results/` | `verifier_vs_judge/`: configs, metrics and checkpoint paths of the verifier and judge runs; `best_of_5_examples.png` |

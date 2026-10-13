@@ -201,6 +201,35 @@ table and every checkpoint's Tinker path are in the
 [top-level README](https://github.com/jackyk02/paint_tinker#results) and
 `results/verifier_vs_judge/`.
 
+## Test-time best-of-n
+
+`best_of_n.py` is the deployment path: the trained policy samples `n` sketches
+(default 5) for a request, each is rendered, and base Inkling-Small ranks the
+ones that render with the same pairwise round-robin tournament that rewarded
+training (`verifier.*`, same criteria and repeats). The top-ranked painting
+is the answer; a sketch that fails to render is never picked.
+
+```bash
+python -m tinker_cookbook.recipes.paint_rl.best_of_n \
+    model_path=tinker://<run id>/sampler_weights/000400 \
+    "prompts.0=Paint a red fox curled up in the snow, in loose watercolor washes." \
+    out_dir=/tmp/paint_rl/best_of_n
+```
+
+`heldout=True` paints the 50 held-out prompts instead (or as well). Each
+request gets `out_dir/<id>/` with every candidate's `.js` and `.png`,
+`best.png` and `result.json` (the candidates' verifier scores), and
+`out_dir/results.jsonl` lists them all. With `from_heldout=<log_path>/heldout_eval/paintings/test/step_XXXX`
+it samples nothing: it ranks the paintings a held-out evaluation already
+saved and writes `summary.json`, the Kimi score of the verifier's pick next
+to the average painting (a random pick) and the best one (an oracle pick).
+
+`web/server.py` puts the same pipeline behind a web page: visitors type a
+request or open a ready-made example (`examples_dirs.0=<best_of_n out_dir>`),
+and the page shows the five paintings, their verifier scores and code, and
+the pick. It listens on 127.0.0.1 and runs on the server's `TINKER_API_KEY`,
+so every request costs sampling and verifier calls; expose it deliberately.
+
 ## Rendering on Modal
 
 `render_backend=modal` sends each page to a Modal function instead of a local
@@ -220,4 +249,6 @@ with many cores, local rendering is faster.
 | `env.py` | `PaintEnv`, group reward, held-out evaluation, artifact saving, dataset builder |
 | `train.py` | CLI launcher |
 | `eval_checkpoints.py` | Held-out evaluation of saved checkpoints, in a separate process |
+| `best_of_n.py` | Test-time best-of-n: sample n sketches from a checkpoint, keep the one base Inkling-Small ranks first |
+| `web/` | `server.py` and `index.html`: a web studio that runs best-of-n on visitors' requests |
 | `gallery.py`, `progression.py`, `compare_runs.py` | HTML gallery, per-step best-painting sheets, run comparison curves |
