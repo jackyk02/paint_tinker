@@ -192,11 +192,14 @@ Useful metrics in `metrics.jsonl`:
 
 ## Results
 
-An earlier version of the recipe (a different prompt pool, 8 x 5 per step,
-held-out prompts scored by Gemini) raised the held-out score from 3.24 to
-5.35 out of 10 by step 470 and the held-out compile rate from 76% to 100%.
-Those numbers are not comparable with the current defaults. Curves, example paintings and that run's metrics are in the
-[top-level README](https://github.com/jackyk02/paint_tinker#results).
+Under the current defaults (run to 400 steps), the verifier beat the judge on
+the held-out Kimi score: 0.712 vs 0.674 at step 400 (0.453 and 0.442 at the
+base model), and 0.660 vs 0.627 averaged over steps 150-400, with pass@5 of
+65.5% vs 60.3%. The two were even for the first ~100 steps. The judge's top
+score was tied in 38% of groups, the verifier's in none. Curves, the full
+table and every checkpoint's Tinker path are in the
+[top-level README](https://github.com/jackyk02/paint_tinker#results) and
+`results/verifier_vs_judge/`.
 
 ## Rendering on Modal
 

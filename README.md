@@ -11,9 +11,9 @@ the reward follows [LLM-as-a-Verifier](https://github.com/llm-as-a-verifier/llm-
 
 ![paintings early to late](results/examples_early_to_late.png)
 
-*From the run described under [Results](#results): two training prompts as they
-came round during the run, and one held-out prompt (never trained on) at three
-checkpoints. Each cell is the best of that step's five paintings by Gemini score.*
+*From the [earlier run](#earlier-run): two training prompts as they came round during
+the run, and one held-out prompt (never trained on) at three checkpoints. Each cell is
+the best of that step's five paintings by Gemini score.*
 
 ## Models
 
@@ -96,13 +96,54 @@ Every knob is in
 
 ## Results
 
-These results come from an earlier version of the recipe, with a different prompt pool,
-8 prompts x 5 rollouts per step and `gemini-3.8-flash` as the held-out evaluator, so they
-are not comparable with runs under the current defaults. The run was extended past 300 steps (`max_steps=1000`); numbers are at
-step 470. Held-out: 16 prompts never trained on x 5 paintings per checkpoint, scored by
-Gemini, which never sees training. Gemini gives each painting an
-integer 0-10 on each of the three criteria; a painting's score is the mean of the three
-(hence 4.7, 6.3), and the curves average 80 paintings per checkpoint.
+Verifier vs judge, run under the current defaults except `max_steps=400`. The two
+configs differ only in `reward_mode` (`verifier` vs `judge`): same seed, prompts,
+policy, learning rate and token budget. Held-out: the 50 held-out prompts x 5
+paintings per checkpoint, every 5 steps, graded by Kimi-K2.6 on the three criteria
+(A-J, normalized to 0-1), which never sees training.
+
+![held-out score, rendered paintings only](results/verifier_vs_judge/heldout_rendered_only.png)
+
+| Held-out | Verifier | Judge |
+|---|---|---|
+| Score, base model (step 0) | 0.453 | 0.442 |
+| Score, step 400 | **0.712** | 0.674 |
+| Score, mean of steps 150-400 | **0.660** | 0.627 |
+| Rendered paintings only, mean of steps 150-400 | **0.669** | 0.635 |
+| Best of 5, mean of steps 150-400 | **0.801** | 0.782 |
+| Pass@5, mean of steps 150-400 | **65.5%** | 60.3% |
+| Pass@5, step 400 | **78%** | 64% |
+| Render rate, step 0 -> 400 | 83% -> 100% | 82% -> 98% |
+
+| Training | Verifier | Judge |
+|---|---|---|
+| Groups whose top score is tied (`scorer/top_tie`) | 0% | 38% (47% over the last 50 steps) |
+| Reward-model calls per painting | ~24 | 3 |
+| Minutes per step (last 50 steps) | 4.8 | 3.8 |
+
+Score is the mean over all 250 paintings, with a failed render scoring 0. Best of 5
+is the best painting's score per prompt, averaged over prompts. Pass@5 is the share
+of prompts where at least one painting averages 8/10 or better (0.78 on 0-1).
+
+- **The two arms are even for the first ~100 steps; then the verifier pulls ahead**
+  and stays ahead by about 0.03-0.04 to step 400, on all paintings and on rendered
+  paintings alone.
+- **The judge's ties cost it signal.** A written A-J letter often gives the best
+  paintings in a group the same score, so they get the same advantage; the
+  verifier's expected-grade scores never tied.
+- **Neither arm had plateaued at step 400.** Both were still rising slowly.
+- **The verifier costs more.** It makes about 8x the reward-model calls of the judge
+  and each step takes about 25% longer.
+
+`results/verifier_vs_judge/` holds each run's config, training and held-out metrics,
+and every checkpoint's Tinker `state_path` and `sampler_path` with its held-out
+scores. The checkpoints are kept on Tinker indefinitely.
+
+### Earlier run
+
+An earlier version of the recipe (a different prompt pool, 16 held-out prompts and
+`gemini-3.8-flash` as the held-out evaluator, integer 0-10 per criterion) was run
+with the verifier only, to step 470. Its numbers are not comparable with the run above.
 
 ![held-out curves](results/heldout_curves.png)
 
@@ -116,23 +157,11 @@ paintings by Gemini score, with the mean of all five below it.*
 | Gemini score, all paintings (failed sketch = 0) | 3.24 / 10 | 5.35 / 10 |
 | Gemini score, compiled paintings only | 4.25 / 10 | 5.35 / 10 |
 | Compile rate | 76% | 100% |
-| Novel subjects / novel combinations | 3.30 / 3.17 | 5.36 / 5.35 |
-| Tier 1 / 2 / 3 (single subject / in a setting / two elements) | 3.61 / 3.30 / 2.67 | 5.59 / 5.46 / 4.88 |
 
-- **Quality kept rising after compiling was solved.** The compile rate reaches ~100% by
-  step 100; the compiled-only Gemini score is flat until then and keeps climbing after it
-  (4.25 -> 5.35), so the later gain is painting quality, not fewer failures.
-- **It generalizes to unseen subjects.** Novel-subject prompts improve as much as novel
-  combinations of seen ones.
-- **The verifier stayed healthy.** 0% of verifier calls failed over the run. Its own grade
-  of compiled paintings rose from 0.75 to 0.91 (first vs last 10 steps), moving in the same
-  direction as Gemini.
-- **Sketches got longer.** Mean code length grew from ~1.7k to ~6.7k characters (the
-  length gate allows up to 8k), and a step now takes ~5 min instead of ~2. Policy entropy
-  fell from 0.39 to 0.26.
-
-`results/run/` holds the run's `config.json`, training `metrics.jsonl` and
-`heldout_metrics.jsonl`.
+Quality kept rising after compiling was solved: the compile rate reached ~100% by
+step 100, and the compiled-only score kept climbing after it. Novel-subject prompts
+improved as much as novel combinations of seen ones. `results/run/` holds that run's
+`config.json`, training `metrics.jsonl` and `heldout_metrics.jsonl`.
 
 ## Outputs
 
@@ -162,4 +191,4 @@ the outputs into an HTML gallery, per-step best-painting sheets and comparison c
 | `tinker-cookbook/tinker_cookbook/recipes/paint_rl/` | the recipe |
 | `setup.sh` | installs the vendored cookbook with the `paint-rl` extra (`llm-verifier`, `openai`, `playwright`) and Chromium |
 | `.env.example` | the credentials the run needs |
-| `results/` | figures, metrics and config of the run above |
+| `results/` | `verifier_vs_judge/`: configs, metrics and checkpoint paths of the verifier and judge runs; the earlier run's figures and metrics |
