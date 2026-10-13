@@ -48,6 +48,8 @@ python -m tinker_cookbook.recipes.paint_rl.train reward_mode=judge log_path=/tmp
 # Resume after an interruption, or train further by raising max_steps:
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier \
     max_steps=600 behavior_if_log_dir_exists=resume
+# Another training seed, evaluated on the same held-out prompts (split_seed stays 0):
+python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier seed=1 log_path=/tmp/paint_rl/verifier-s1
 
 # In another shell per run: held-out evaluation of every checkpoint as it is saved
 python -m tinker_cookbook.recipes.paint_rl.eval_checkpoints log_path=/tmp/paint_rl/verifier
@@ -65,6 +67,9 @@ Defaults: 8 prompts x 5 rollouts per step, 400 steps, LoRA rank 32, learning
 rate 4e-5. A checkpoint is saved every 5 steps and kept on Tinker indefinitely
 (`checkpoint_ttl_seconds=None`; the cookbook default would expire periodic
 checkpoints after 7 days); they are listed in `<log_path>/checkpoints.jsonl`.
+`seed` sets the prompt order and the reward-model sampling seeds; the
+train/held-out split comes from `split_seed`, so runs with different seeds are
+scored on the same held-out prompts.
 `hyperparam_utils.get_lr` has no calibrated value for Inkling; 4e-5 worked
 for the run in the top-level README, but sweep the learning rate and
 the effort settings (`policy_effort`, `verifier.effort`, `judge.effort`) if

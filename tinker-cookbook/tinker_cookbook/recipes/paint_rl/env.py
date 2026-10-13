@@ -523,6 +523,8 @@ class PaintRLDatasetBuilder(RLDatasetBuilder):
     n_test_prompts: int
     test_group_size: int
     seed: int
+    # Seeds the train/held-out split, separately from ``seed``.
+    split_seed: int = 0
     artifact_dir: str | None = None
 
     @property
@@ -534,7 +536,7 @@ class PaintRLDatasetBuilder(RLDatasetBuilder):
         train_prompts, test_prompts = build_prompt_splits(
             n_train=self.n_train_prompts,
             n_test=self.n_test_prompts,
-            seed=self.seed,
+            seed=self.split_seed,
         )
         logger.info(
             "Prompt split: train %s | test %s",
