@@ -92,9 +92,8 @@ def test_reward_config_follows_reward_mode():
     assert effort_preset(v.effort) == "low" and v.n_evaluations == 4
 
 
-def test_absolute_prompt_asks_for_one_criterion_on_1_to_5():
+def test_absolute_prompt_asks_for_one_criterion_a_to_j():
     from tinker_cookbook.recipes.paint_rl.verifier import (
-        OVERALL_CRITERION,
         EvaluatorConfig,
         JudgeConfig,
         VerifierConfig,
@@ -110,8 +109,9 @@ def test_absolute_prompt_asks_for_one_criterion_on_1_to_5():
     # The judge and the held-out evaluator both score the verifier's three criteria.
     assert resolve_criteria(EvaluatorConfig().criteria) == resolve_criteria(())
     assert resolve_criteria(JudgeConfig().criteria) == resolve_criteria(())
-    assert OVERALL_CRITERION[0] in absolute_prompt("p", OVERALL_CRITERION)
     assert len(resolve_criteria(VerifierConfig().criteria)) == 3
+    with pytest.raises(ValueError):
+        resolve_criteria(("Overall Quality",))
 
 
 def test_letter_scale_can_be_narrowed_per_process():
@@ -155,12 +155,12 @@ def test_letter_scale_can_be_narrowed_per_process():
 
 def test_judge_can_grade_with_letters():
     from tinker_cookbook.recipes.paint_rl.verifier import (
-        OVERALL_CRITERION,
         absolute_prompt,
         extract_letter_score,
+        resolve_criteria,
     )
 
-    prompt = absolute_prompt("Paint a teal mailbox.", OVERALL_CRITERION, letter_grades=20)
+    prompt = absolute_prompt("Paint a teal mailbox.", resolve_criteria(())[0], letter_grades=20)
     assert "<score> LETTER_A_TO_T </score>" in prompt and "A-J" not in prompt
     assert extract_letter_score("... <score> A </score>", 20) == 1.0
     assert extract_letter_score("<score>T</score>", 20) == 0.0

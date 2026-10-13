@@ -35,7 +35,7 @@ differ only in how the paintings are scored.
 ## Running
 
 ```bash
-pip install -e ".[paint-rl]"     # llm-verifier, openai, google-genai, playwright
+pip install -e ".[paint-rl]"     # llm-verifier, openai, playwright
 python -m playwright install --with-deps chromium
 
 export TINKER_API_KEY=...   # policy, reward model and held-out evaluator all run on Tinker
@@ -172,12 +172,10 @@ the other paintings in a group, and the judge's is on its own scale, so
 neither can be compared across steps or runs; the Kimi score is the fixed
 yardstick. Kimi is asked exactly what the judge is asked: a letter A-J (1-10) on
 each of the verifier's three criteria, one call each, read from its reply;
-a painting's score is the mean, normalized to 0-1 as `(s - 1) / 9` (750 calls per
-checkpoint; `"evaluator.criteria=Overall Quality"` scores one overall
-criterion instead, and `"judge.criteria=Overall Quality"` does the same for
-the judge). Kimi
-runs on Tinker's native sampler through the cookbook's `kimi_k26` renderer,
-because Tinker's OpenAI-compatible endpoint takes no images for it. A call
+a painting's score is the mean, normalized to 0-1 as `(s - 1) / 9` (750
+calls per checkpoint). Kimi runs on Tinker's native sampler through the
+cookbook's `kimi_k26` renderer, because Tinker's OpenAI-compatible endpoint
+takes no images for it. A call
 that fails after the SDK's retries is left out (`eval_strong/failed_frac`).
 Another vision model on Tinker can be swapped in with
 `evaluator.model_name=...` (and `evaluator.renderer_name=...` if `model_info`

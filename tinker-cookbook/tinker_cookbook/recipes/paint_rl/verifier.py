@@ -150,16 +150,6 @@ DEFAULT_CRITERIA: dict[str, str] = {
     ),
 }
 
-# A generic overall criterion, for a classic LLM-as-a-Judge that decides for
-# itself what makes a good painting (criteria=("Overall Quality",)).
-OVERALL_CRITERION: tuple[str, str] = (
-    "Overall Quality",
-    "How good is this painting as a response to the request, overall? Judge "
-    "it as an expert would judge any watercolor painting made for this "
-    "request, weighing whatever matters to you. Score HIGH for an excellent "
-    "painting of the request and LOW for a poor one.",
-)
-
 
 # What the verifier is told the two "trajectories" are. llm_verifier attaches
 # the images in order after the task, so slot A is the first image.
@@ -178,18 +168,14 @@ SLOT_A = "Painting A: the FIRST attached image."
 SLOT_B = "Painting B: the SECOND attached image."
 
 
-# Every criterion a scorer can be asked for, by name.
-KNOWN_CRITERIA: dict[str, str] = {**DEFAULT_CRITERIA, OVERALL_CRITERION[0]: OVERALL_CRITERION[1]}
-
-
 def resolve_criteria(names: tuple[str, ...]) -> list[tuple[str, str]]:
-    """``(name, description)`` for ``names`` (keys of KNOWN_CRITERIA); empty = the
-    three DEFAULT_CRITERIA."""
+    """``(name, description)`` for ``names`` (keys of DEFAULT_CRITERIA); empty = all
+    three."""
     selected = list(names) or list(DEFAULT_CRITERIA)
-    missing = [n for n in selected if n not in KNOWN_CRITERIA]
+    missing = [n for n in selected if n not in DEFAULT_CRITERIA]
     if missing:
-        raise ValueError(f"unknown criteria {missing}; known: {list(KNOWN_CRITERIA)}")
-    return [(n, KNOWN_CRITERIA[n]) for n in selected]
+        raise ValueError(f"unknown criteria {missing}; known: {list(DEFAULT_CRITERIA)}")
+    return [(n, DEFAULT_CRITERIA[n]) for n in selected]
 
 
 @chz.chz
@@ -226,7 +212,7 @@ class JudgeConfig:
     model_name: str = DEFAULT_REWARD_MODEL
     effort: float = DEFAULT_REWARD_EFFORT
     max_tokens: int = DEFAULT_REWARD_MAX_TOKENS
-    # Criteria names (keys of KNOWN_CRITERIA); empty = the verifier's three.
+    # Criteria names (keys of DEFAULT_CRITERIA); empty = the verifier's three.
     # Each is its own call per painting, and a painting's reward is the mean.
     criteria: tuple[str, ...] = ()
     # One written letter per criterion, A (best) to the Nth letter (worst).
@@ -252,7 +238,7 @@ class EvaluatorConfig:
     temperature: float = 1.0
     n_evaluations: int = 1
     # The verifier's three criteria, each its own call per painting, as
-    # the judge scores them; ("Overall Quality",) scores one overall criterion.
+    # the judge scores them.
     criteria: tuple[str, ...] = ()
     # Each criterion graded with one written letter from A (outstanding) to
     # the Nth letter (complete failure), as the judge grades it.
@@ -612,7 +598,7 @@ _ABSOLUTE_PREAMBLE = (
 
 def absolute_prompt(
     problem: str,
-    criterion: tuple[str, str] = OVERALL_CRITERION,
+    criterion: tuple[str, str],
     letter_grades: int = LETTER_GRADES,
 ) -> str:
     """The single-painting prompt, shared by the judge and the held-out evaluator:
@@ -812,9 +798,8 @@ class _TinkerVisionClient:
 class HeldoutEvaluator:
     """Independent absolute scores per painting and criterion, no pairing.
 
-    By default there is one criterion, the judge's overall one, so each
-    painting is one request; with several criteria each is its own request,
-    so one criterion's reasoning never colors another's. All of a group's requests are submitted at once (and
+    Each criterion is its own request, so one criterion's reasoning never
+    colors another's. All of a group's requests are submitted at once (and
     every group's, since groups are evaluated concurrently), up to
     ``max_concurrency`` in flight; ``n_evaluations`` repeats come from
     ``num_samples`` on the same request.
