@@ -96,7 +96,11 @@ class CLIConfig:
     # timeout scores 0, so leave plenty of headroom.
     render_timeout_s: float = 300.0
     render_backend: RenderBackend = "local"  # 'modal' after `modal deploy .../render_modal.py`
+    # Training randomness (prompt order, reward-model seeds). It leaves the prompt
+    # split alone, so runs with different seeds share the same held-out prompts.
     seed: int = 0
+    # Seeds the train/held-out prompt split.
+    split_seed: int = 0
 
     # Logging
     log_path: str | None = None
@@ -167,6 +171,7 @@ async def cli_main(cli: CLIConfig) -> None:
         n_test_prompts=cli.n_test_prompts,
         test_group_size=cli.test_group_size,
         seed=cli.seed,
+        split_seed=cli.split_seed,
         artifact_dir=artifact_dir,
     )
     config = Config(

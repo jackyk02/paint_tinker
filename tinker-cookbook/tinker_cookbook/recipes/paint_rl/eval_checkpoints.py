@@ -160,7 +160,8 @@ class CheckpointEvaluator:
         _, self.test_prompts = build_prompt_splits(
             n_train=data["n_train_prompts"],
             n_test=data["n_test_prompts"],
-            seed=data["seed"],
+            # Runs logged before split_seed existed split their prompts with seed.
+            seed=data.get("split_seed", data["seed"]),
         )
         self.reward_config = reward_config_from_run(data)
         self.weights = RewardWeights(**data["weights"])
