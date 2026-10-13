@@ -62,7 +62,7 @@ class CLIConfig:
     # Each step: 8 prompts x 5 rollouts.
     group_size: int = 5
     groups_per_batch: int = 8
-    max_steps: int = 200
+    max_steps: int = 400
     num_substeps: int = 1
     kl_penalty_coef: float = 0.0
     loss_fn: LossFnType = "importance_sampling"

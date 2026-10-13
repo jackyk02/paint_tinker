@@ -31,10 +31,13 @@ cp .env.example .env && $EDITOR .env   # TINKER_API_KEY (everything runs on Tink
 set -a && . ./.env && set +a
 ./setup.sh                             # vendored cookbook + paint-rl extra + Chromium
 
-# Train with LLM-as-a-Verifier
+# Train with LLM-as-a-Verifier (400 steps, about 32 hours)
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier
-# ... and/or the LLM-as-a-Judge baseline (separately, or at the same time in another shell)
+# ... and/or the LLM-as-a-Judge baseline (400 steps, about 25 hours; separately, or at
+# the same time in another shell)
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=judge log_path=/tmp/paint_rl/judge
+# Add behavior_if_log_dir_exists=resume to continue from the last checkpoint after an
+# interruption, and raise max_steps (e.g. max_steps=600) to train further
 
 # In another shell per run: evaluate every checkpoint on the held-out prompts as it appears
 python -m tinker_cookbook.recipes.paint_rl.eval_checkpoints log_path=/tmp/paint_rl/verifier
@@ -53,7 +56,7 @@ Every knob is in
 
 | | |
 |---|---|
-| Steps | 200, each 8 prompts x 5 rollouts |
+| Steps | 400, each 8 prompts x 5 rollouts |
 | Optimizer | importance-sampling policy gradient, group-centered advantages, lr 4e-5 |
 | Reward | `0.05 * compiled + 0.05 * length_ok + 0.90 * score`, in both modes |
 | Verifier | effort 0.2; 3 criteria x 4 slot-swapped repeats, full round robin: 120 calls per group, a whole step (960) in flight |
@@ -95,7 +98,7 @@ Every knob is in
 
 ## Results
 
-Verifier vs judge, run under the current defaults except `max_steps=400`. The two
+Verifier vs judge, run under the current defaults (400 steps). The two
 configs differ only in `reward_mode` (`verifier` vs `judge`): same seed, prompts,
 policy, learning rate and token budget. Held-out: the 50 held-out prompts x 5
 paintings per checkpoint, every 5 steps, graded by Kimi-K2.6 on the three criteria

@@ -40,10 +40,14 @@ python -m playwright install --with-deps chromium
 
 export TINKER_API_KEY=...   # policy, reward model and held-out evaluator all run on Tinker
 
-# LLM-as-a-Verifier
+# LLM-as-a-Verifier (400 steps, about 32 hours)
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier
-# LLM-as-a-Judge baseline (separately, or at the same time in another shell)
+# LLM-as-a-Judge baseline (400 steps, about 25 hours; separately, or at the same time
+# in another shell)
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=judge log_path=/tmp/paint_rl/judge
+# Resume after an interruption, or train further by raising max_steps:
+python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier \
+    max_steps=600 behavior_if_log_dir_exists=resume
 
 # In another shell per run: held-out evaluation of every checkpoint as it is saved
 python -m tinker_cookbook.recipes.paint_rl.eval_checkpoints log_path=/tmp/paint_rl/verifier
@@ -57,7 +61,7 @@ python -m tinker_cookbook.recipes.paint_rl.compare_runs \
     runs='{"verifier": "/tmp/paint_rl/verifier", "judge": "/tmp/paint_rl/judge"}' out=compare.png
 ```
 
-Defaults: 8 prompts x 5 rollouts per step, 200 steps, LoRA rank 32, learning
+Defaults: 8 prompts x 5 rollouts per step, 400 steps, LoRA rank 32, learning
 rate 4e-5. A checkpoint is saved every 5 steps and kept on Tinker indefinitely
 (`checkpoint_ttl_seconds=None`; the cookbook default would expire periodic
 checkpoints after 7 days); they are listed in `<log_path>/checkpoints.jsonl`.
