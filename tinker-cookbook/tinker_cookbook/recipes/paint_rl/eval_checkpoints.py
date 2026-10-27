@@ -66,6 +66,8 @@ logger = logging.getLogger(__name__)
 
 @chz.chz
 class Config:
+    """CLI config: ``python -m tinker_cookbook.recipes.paint_rl.eval_checkpoints log_path=...``."""
+
     # The training run to evaluate (its config.json and checkpoints.jsonl).
     log_path: str
     # Evaluate checkpoints whose step is a multiple of this (the final one always).
@@ -84,9 +86,8 @@ class Config:
     # sampling on Tinker is not throttled: all held-out rollouts are
     # submitted at once.
     evaluator: EvaluatorConfig = chz.field(default_factory=EvaluatorConfig)
-    # Rendering here shares the CPU with training (128 cores is plenty for
-    # both), with a long timeout so a slow render is never
-    # scored as a failed sketch.
+    # Rendering here shares the CPU with training, so the timeout is long:
+    # a slow render must never be scored as a failed sketch.
     render_concurrency: int = 50
     render_timeout_s: float = 600.0
     base_url: str | None = None
@@ -111,10 +112,9 @@ def _rebuild(cls: type[Any], raw: dict[str, Any]) -> Any:
 
 def reward_config_from_run(data: dict[str, Any]) -> RewardConfig:
     """The training reward a run used, from its config.json ``dataset_builder``."""
-    if data.get("reward_mode") == "judge" and "verifier_config" in data:
+    if data.get("reward_mode") == "judge":
         return _rebuild(JudgeConfig, data["judge_config"])
-    # Runs logged before the judge baseline named the verifier judge_config.
-    return _rebuild(VerifierConfig, data.get("verifier_config") or data["judge_config"])
+    return _rebuild(VerifierConfig, data["verifier_config"])
 
 
 def _read_checkpoints(log_path: Path) -> list[dict[str, Any]]:
@@ -145,6 +145,8 @@ def _targets(checkpoints: list[dict[str, Any]], every: int, include_base: bool) 
 
 
 class CheckpointEvaluator:
+    """Follows a run's ``checkpoints.jsonl`` and evaluates each new checkpoint held-out."""
+
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.log_path = Path(cfg.log_path)
@@ -160,8 +162,7 @@ class CheckpointEvaluator:
         _, self.test_prompts = build_prompt_splits(
             n_train=data["n_train_prompts"],
             n_test=data["n_test_prompts"],
-            # Runs logged before split_seed existed split their prompts with seed.
-            seed=data.get("split_seed", data["seed"]),
+            seed=data["split_seed"],
         )
         self.reward_config = reward_config_from_run(data)
         self.weights = RewardWeights(**data["weights"])
@@ -261,6 +262,7 @@ class CheckpointEvaluator:
 
 
 async def main(cfg: Config) -> None:
+    """Evaluate the run's checkpoints, and keep following the run while ``follow=True``."""
     await CheckpointEvaluator(cfg).run()
 
 

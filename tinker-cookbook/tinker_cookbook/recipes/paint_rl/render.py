@@ -18,11 +18,14 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from PIL import Image, ImageStat
 
 from tinker_cookbook.recipes.paint_rl.assets import get_library_sources
+
+if TYPE_CHECKING:
+    from playwright.async_api import Browser, Playwright
 
 logger = logging.getLogger(__name__)
 
@@ -177,8 +180,8 @@ class SketchRenderer:
         self.n_browsers = max(1, min(n_browsers, max_concurrency))
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._lock = asyncio.Lock()
-        self._playwright = None
-        self._browsers: list[object] = []
+        self._playwright: Playwright | None = None
+        self._browsers: list[Browser] = []
         self._next_browser = 0
 
     async def start(self) -> None:
@@ -199,7 +202,7 @@ class SketchRenderer:
         async with self._lock:
             for browser in self._browsers:
                 with contextlib.suppress(Exception):
-                    await browser.close()  # type: ignore[attr-defined]
+                    await browser.close()
             self._browsers = []
             if self._playwright is not None:
                 await self._playwright.stop()
@@ -262,11 +265,11 @@ class SketchRenderer:
         routed to it would fail.
         """
         browser = self._browsers[index]
-        if browser.is_connected():  # type: ignore[attr-defined]
+        if browser.is_connected():
             return browser
         async with self._lock:
             browser = self._browsers[index]
-            if not browser.is_connected():  # type: ignore[attr-defined]
+            if not browser.is_connected():
                 assert self._playwright is not None
                 logger.warning("Headless browser %d died; relaunching it", index)
                 browser = await self._playwright.chromium.launch(args=_CHROMIUM_ARGS)

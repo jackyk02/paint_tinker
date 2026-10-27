@@ -87,6 +87,8 @@ logger = logging.getLogger(__name__)
 
 @chz.chz
 class RewardWeights:
+    """``reward = compile_gate * compiled + length_gate * length_ok + score * scorer score``."""
+
     compile_gate: float = 0.05
     length_gate: float = 0.05
     score: float = 0.90
@@ -195,6 +197,8 @@ def _image_html(png: bytes, size: int = 256) -> str:
 
 @dataclass(frozen=True)
 class PaintEnvGroupBuilder(EnvGroupBuilder):
+    """One prompt's rollout group: builds the envs, scores the group, saves the artifacts."""
+
     prompt: PaintPrompt
     renderer: Renderer
     system: str
@@ -498,6 +502,8 @@ class PaintRLDataset(RLDataset):
 
 @chz.chz
 class PaintRLDatasetBuilder(RLDatasetBuilder):
+    """Builds the training dataset and the held-out one from the prompt split."""
+
     model_name_for_tokenizer: str
     renderer_name: str
     batch_size: int

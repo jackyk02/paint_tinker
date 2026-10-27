@@ -17,149 +17,142 @@ from tinker_cookbook.recipes.paint_rl.prompts import (
 # the pool or the splitter that moves these prompts makes runs incomparable,
 # so it has to be a deliberate change here as well.
 PINNED_HELDOUT_SEED0 = [
-    ("s27c06t0", "Paint a violet windmill in wet-on-wet watercolor wash."),
+    ("s12c06t0", "Paint a violet poppy field under a summer sky in wet-on-wet watercolor wash."),
+    ("s33c09t3", "Paint an olive stack of old books on a windowsill in layered watercolor glazes."),
+    ("s29c04t1", "Paint a teal watering can in minimal watercolor with lots of white paper."),
     (
-        "s12c03t1",
-        "Paint an emerald field of flowers on a rolling hillside in minimal watercolor with lots of white paper.",
+        "s36c12t2",
+        "Paint a blue violet straw hat hanging on a chair beside an open window in watercolor with soft ink outlines.",
     ),
-    ("s42c07t3", "Paint a sepia fish swimming in a clear stream in layered watercolor glazes."),
+    ("s44c03t3", "Paint an emerald sailboat on a calm sea in layered watercolor glazes."),
+    ("s42c08t0", "Paint a magenta mountain lake at dawn in wet-on-wet watercolor wash."),
     (
-        "s40c02t2",
-        "Paint a golden forest path in dappled sunlight in watercolor with soft ink outlines.",
+        "s47c05t2",
+        "Paint an indigo village street leading to a church under a crescent moon in watercolor with soft ink outlines.",
     ),
+    ("s05c07t1", "Paint a sepia lily in minimal watercolor with lots of white paper."),
     (
-        "s41c05t2",
-        "Paint an indigo flock of birds in flight across the sky in watercolor with soft ink outlines.",
-    ),
-    (
-        "s07c00t1",
-        "Paint a crimson magnolia branch in a glass vase in minimal watercolor with lots of white paper.",
-    ),
-    (
-        "s05c04t0",
-        "Paint a teal cherry blossom branch against a pale sky in wet-on-wet watercolor wash.",
+        "s07c10t2",
+        "Paint a sky blue orchid in a terracotta pot in watercolor with soft ink outlines.",
     ),
     (
-        "s35c01t3",
-        "Paint a coral village street leading to a church under a crescent moon in layered watercolor glazes.",
+        "s51c01t1",
+        "Paint a coral flock of birds in flight across the sky in minimal watercolor with lots of white paper.",
     ),
-    ("s01c05t0", "Paint an indigo rose in wet-on-wet watercolor wash."),
+    (
+        "k04t0",
+        "Paint a round ceramic bowl with a narrow base and wide opening, in wet-on-wet watercolor wash.",
+    ),
     (
         "k06t3",
         "Paint a winding road that becomes narrower toward the horizon, in layered watercolor glazes.",
     ),
-    ("s39c04t2", "Paint a teal Golden Gate Bridge in watercolor with soft ink outlines."),
-    ("s00c03t1", "Paint an emerald sunflower in minimal watercolor with lots of white paper."),
+    ("s23c02t3", "Paint a golden pomegranate in layered watercolor glazes."),
     (
-        "s04c01t0",
+        "s27c11t0",
+        "Paint a charcoal gray bunch of bananas beside a striped teacup in wet-on-wet watercolor wash.",
+    ),
+    ("s28c00t2", "Paint a crimson hot air balloon in watercolor with soft ink outlines."),
+    (
+        "k02t1",
+        "Paint a blue vase to the left of a yellow teacup, in minimal watercolor with lots of white paper.",
+    ),
+    ("s00c11t1", "Paint a charcoal gray sunflower in minimal watercolor with lots of white paper."),
+    ("s01c03t3", "Paint an emerald rose in layered watercolor glazes."),
+    ("s41c00t2", "Paint a crimson barn in watercolor with soft ink outlines."),
+    ("s38c08t0", "Paint a magenta lighthouse in wet-on-wet watercolor wash."),
+    (
+        "s14c02t2",
+        "Paint a golden bouquet of peonies in a ceramic jug in watercolor with soft ink outlines.",
+    ),
+    (
+        "s15c07t0",
+        "Paint a sepia wisteria vine trailing over a garden gate in wet-on-wet watercolor wash.",
+    ),
+    (
+        "s52c09t1",
+        "Paint an olive fish swimming in a clear stream in minimal watercolor with lots of white paper.",
+    ),
+    (
+        "s46c12t3",
+        "Paint a blue violet lighthouse with a sailboat passing in front of it in layered watercolor glazes.",
+    ),
+    (
+        "s20c05t2",
+        "Paint an indigo field of flowers with a path leading to a distant cottage in watercolor with soft ink outlines.",
+    ),
+    (
+        "s35c04t1",
+        "Paint a teal bowl of lemons beside a glass bottle in minimal watercolor with lots of white paper.",
+    ),
+    (
+        "s10c01t0",
         "Paint a coral lotus blossom floating on a still pond in wet-on-wet watercolor wash.",
     ),
+    ("s45c06t3", "Paint a violet forest in autumn in layered watercolor glazes."),
     (
-        "s34c06t3",
-        "Paint a violet lighthouse with a sailboat passing in front of it in layered watercolor glazes.",
+        "s11c10t1",
+        "Paint a sky blue cherry blossom branch against a pale sky in minimal watercolor with lots of white paper.",
     ),
-    (
-        "s20c07t2",
-        "Paint a sepia bicycle leaning against a brick wall in watercolor with soft ink outlines.",
-    ),
-    (
-        "s14c02t1",
-        "Paint a golden field of flowers with a path leading to a distant cottage in minimal watercolor with lots of white paper.",
-    ),
-    (
-        "k07t0",
-        "Paint a row of trees along a canal, shrinking into the distance, in wet-on-wet watercolor wash.",
-    ),
-    ("s28c00t1", "Paint a crimson cottage in minimal watercolor with lots of white paper."),
-    ("s33c02t3", "Paint a golden birch forest in autumn in layered watercolor glazes."),
-    ("k00t2", "Paint exactly five red tulips in a vase, in watercolor with soft ink outlines."),
-    (
-        "s38c04t2",
-        "Paint a teal creepypasta figure lurking at the edge of a foggy forest in watercolor with soft ink outlines.",
-    ),
-    ("s11c07t3", "Paint a sepia field of flowers in layered watercolor glazes."),
-    ("s29c05t1", "Paint an indigo barn in minimal watercolor with lots of white paper."),
-    ("s17c03t0", "Paint an emerald watering can in wet-on-wet watercolor wash."),
-    ("s15c00t1", "Paint a crimson pear in minimal watercolor with lots of white paper."),
-    (
-        "s10c06t0",
-        "Paint a violet clump of daffodils growing beside a stone birdbath in wet-on-wet watercolor wash.",
-    ),
-    (
-        "s21c01t2",
-        "Paint a coral stack of old books on a windowsill in watercolor with soft ink outlines.",
-    ),
-    (
-        "k04t3",
-        "Paint a round ceramic bowl with a narrow base and wide opening, in layered watercolor glazes.",
-    ),
-    (
-        "s23c04t2",
-        "Paint a teal bowl of lemons beside a glass bottle in watercolor with soft ink outlines.",
-    ),
-    ("s03c07t3", "Paint a sepia daisy in layered watercolor glazes."),
-    ("k01t0", "Paint exactly three white sailboats on a calm lake, in wet-on-wet watercolor wash."),
-    (
-        "s09c00t1",
-        "Paint a crimson wisteria vine trailing over a garden gate in minimal watercolor with lots of white paper.",
-    ),
-    (
-        "k03t1",
-        "Paint a red apple on top of a stack of two green books, in minimal watercolor with lots of white paper.",
-    ),
-    (
-        "s06c01t2",
-        "Paint a coral poppy field under a summer sky in watercolor with soft ink outlines.",
-    ),
-    (
-        "s36c03t3",
-        "Paint an emerald stone bridge arching over a quiet river in layered watercolor glazes.",
-    ),
-    ("s18c02t0", "Paint a golden cup of coffee on a wooden table in wet-on-wet watercolor wash."),
-    (
-        "s08c05t1",
-        "Paint an indigo bouquet of peonies in a ceramic jug in minimal watercolor with lots of white paper.",
-    ),
-    ("k02t3", "Paint a blue vase to the left of a yellow teacup, in layered watercolor glazes."),
-    ("s13c06t2", "Paint a violet field of flowers at sunset in watercolor with soft ink outlines."),
-    (
-        "s37c04t0",
-        "Paint a teal classical building with columns and arched windows in wet-on-wet watercolor wash.",
-    ),
-    (
-        "s22c07t0",
-        "Paint a sepia basket of apples on a checked tablecloth in wet-on-wet watercolor wash.",
-    ),
-    ("s30c03t2", "Paint an emerald mountain lake at dawn in watercolor with soft ink outlines."),
-    (
-        "s19c05t1",
-        "Paint an indigo lantern hanging in a stone doorway in minimal watercolor with lots of white paper.",
-    ),
-    ("s25c06t3", "Paint a violet mailbox in layered watercolor glazes."),
-    ("s31c02t0", "Paint a golden old oak tree alone in a meadow in wet-on-wet watercolor wash."),
-    ("s32c01t2", "Paint a coral sailboat on a calm sea in watercolor with soft ink outlines."),
-    ("s16c00t1", "Paint a crimson hot air balloon in minimal watercolor with lots of white paper."),
-    ("s02c06t3", "Paint a violet tulip in layered watercolor glazes."),
-    ("s26c05t1", "Paint an indigo lighthouse in minimal watercolor with lots of white paper."),
+    ("s03c04t3", "Paint a teal daisy in layered watercolor glazes."),
+    ("s17c06t0", "Paint a violet field of flowers in wet-on-wet watercolor wash."),
     (
         "k05t2",
         "Paint a diamond-shaped kite with a long ribbon tail, in watercolor with soft ink outlines.",
     ),
+    ("s21c09t0", "Paint an olive pear in wet-on-wet watercolor wash."),
+    ("s04c12t3", "Paint a blue violet iris in layered watercolor glazes."),
+    ("s40c03t1", "Paint an emerald cottage in minimal watercolor with lots of white paper."),
+    (
+        "s49c10t2",
+        "Paint a sky blue classical building with columns and arched windows in watercolor with soft ink outlines.",
+    ),
+    (
+        "s09c02t0",
+        "Paint a golden lavender field stretching toward a distant farmhouse in wet-on-wet watercolor wash.",
+    ),
+    (
+        "s34c01t3",
+        "Paint a coral basket of apples on a checked tablecloth in layered watercolor glazes.",
+    ),
+    (
+        "k07t2",
+        "Paint a row of trees along a canal, shrinking into the distance, in watercolor with soft ink outlines.",
+    ),
+    ("s39c07t1", "Paint a sepia windmill in minimal watercolor with lots of white paper."),
+    ("s06c11t2", "Paint a charcoal gray hydrangea in watercolor with soft ink outlines."),
+    ("s43c08t0", "Paint a magenta old oak tree alone in a meadow in wet-on-wet watercolor wash."),
+    (
+        "s18c00t1",
+        "Paint a crimson field of flowers on a rolling hillside in minimal watercolor with lots of white paper.",
+    ),
+    ("s08c05t3", "Paint an indigo foxgloves along a cottage wall in layered watercolor glazes."),
+    ("k00t3", "Paint exactly five red tulips in a vase, in layered watercolor glazes."),
+    (
+        "s13c06t1",
+        "Paint a violet magnolia branch in a glass vase in minimal watercolor with lots of white paper.",
+    ),
+    ("s37c05t0", "Paint an indigo mailbox in wet-on-wet watercolor wash."),
+    ("s22c07t2", "Paint a sepia peach in watercolor with soft ink outlines."),
+    (
+        "s30c12t2",
+        "Paint a blue violet cup of coffee on a wooden table in watercolor with soft ink outlines.",
+    ),
+    ("s19c02t3", "Paint a golden field of flowers at sunset in layered watercolor glazes."),
 ]
 
 
 def test_pool_shape():
     pool = build_prompt_pool()
-    # one color is left out for the creepypasta figure and the Golden Gate
-    # Bridge; skill prompts are crossed with the styles only
-    base = len(SUBJECTS) * len(COLORS) * len(STYLES) - 2 * len(STYLES)
-    assert len(pool) == base + len(SKILL_PROMPTS) * len(STYLES) == 1400
+    # skill prompts are crossed with the styles only
+    base = len(SUBJECTS) * len(COLORS) * len(STYLES)
+    assert len(pool) == base + len(SKILL_PROMPTS) * len(STYLES) == 2788
     assert len({p.id for p in pool}) == len(pool)
     assert len({s.phrase for s in SUBJECTS}) == len(SUBJECTS)
     assert Counter(s.family for s in SUBJECTS) == {
-        "flower": 15, "object": 11, "scene": 15, "animal": 2,
+        "flower": 21, "object": 17, "scene": 13, "animal": 2,
     }  # fmt: skip
-    assert Counter(s.tier for s in SUBJECTS) == {1: 14, 2: 20, 3: 9}
+    assert Counter(s.tier for s in SUBJECTS) == {1: 19, 2: 24, 3: 10}
 
 
 def test_animal_family():
@@ -168,12 +161,10 @@ def test_animal_family():
     }  # fmt: skip
 
 
-def test_excluded_combos_and_variants():
+def test_subject_variants():
     pool = build_prompt_pool()
     assert sum(s.name == "field of flowers" for s in SUBJECTS) == 4
-    assert not [p for p in pool if p.subject.startswith("creepypasta") and p.color == "indigo"]
-    assert len([p for p in pool if p.subject.startswith("creepypasta")]) == 7 * len(STYLES)
-    assert not [p for p in pool if "golden Golden" in p.text]
+    assert len([p for p in pool if p.subject == "field of flowers"]) == len(COLORS) * len(STYLES)
 
 
 def test_articles():

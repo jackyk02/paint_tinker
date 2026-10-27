@@ -52,7 +52,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 import chz
 from PIL import Image
@@ -61,6 +61,11 @@ try:
     import llm_verifier
 except ImportError as e:  # pragma: no cover - environment specific
     raise ImportError("paint_rl needs the llm-verifier package: pip install llm-verifier") from e
+
+if TYPE_CHECKING:
+    import tinker
+
+    from tinker_cookbook.renderers import Renderer
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +168,6 @@ def pairwise_note(granularity: int = 20) -> str:
     )
 
 
-PAIRWISE_NOTE = pairwise_note()
 SLOT_A = "Painting A: the FIRST attached image."
 SLOT_B = "Painting B: the SECOND attached image."
 
@@ -736,15 +740,15 @@ class _TinkerVisionClient:
 
     def __init__(self, config: EvaluatorConfig):
         self.config = config
-        self._sampler: Any = None
-        self._renderer: Any = None
+        self._sampler: tinker.SamplingClient | None = None
+        self._renderer: Renderer | None = None
         self._semaphore = asyncio.Semaphore(config.max_concurrency)
         self._lock = asyncio.Lock()
 
-    async def _ensure_started(self) -> None:
+    async def _ensure_started(self) -> tuple[tinker.SamplingClient, Renderer]:
         async with self._lock:
-            if self._sampler is not None:
-                return
+            if self._sampler is not None and self._renderer is not None:
+                return self._sampler, self._renderer
             import tinker
 
             from tinker_cookbook import model_info
@@ -761,10 +765,11 @@ class _TinkerVisionClient:
             )
             service = tinker.ServiceClient(base_url=self.config.base_url)
             self._sampler = await service.create_sampling_client_async(base_model=name)
+            return self._sampler, self._renderer
 
     async def ask(self, prompt: str, image: Image.Image, num_samples: int) -> list[Reply]:
         """``num_samples`` replies to one prompt, from a single sampling request."""
-        await self._ensure_started()
+        sampler, renderer = await self._ensure_started()
         import tinker
 
         from tinker_cookbook.renderers import Message, get_text_content
@@ -773,15 +778,15 @@ class _TinkerVisionClient:
             role="user",
             content=[{"type": "text", "text": prompt}, {"type": "image", "image": image}],
         )
-        model_input = self._renderer.build_generation_prompt([message])
+        model_input = renderer.build_generation_prompt([message])
         params = tinker.SamplingParams(
             max_tokens=self.config.max_tokens,
             temperature=self.config.temperature,
-            stop=self._renderer.get_stop_sequences(),
+            stop=renderer.get_stop_sequences(),
         )
         try:
             async with self._semaphore:
-                result = await self._sampler.sample_async(
+                result = await sampler.sample_async(
                     model_input, num_samples=num_samples, sampling_params=params
                 )
         except Exception as e:  # still failing after the SDK's own retries
@@ -789,7 +794,7 @@ class _TinkerVisionClient:
             return [Reply(text="", truncated=True)] * num_samples
         replies = []
         for sequence in result.sequences:
-            reply, _ = self._renderer.parse_response(sequence.tokens)
+            reply, _ = renderer.parse_response(sequence.tokens)
             text = get_text_content(reply)
             replies.append(Reply(text=text, truncated=sequence.stop_reason == "length" or not text))
         return replies

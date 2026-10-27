@@ -32,9 +32,9 @@ cp .env.example .env && $EDITOR .env   # TINKER_API_KEY (everything runs on Tink
 set -a && . ./.env && set +a
 ./setup.sh                             # vendored cookbook + paint-rl extra + Chromium
 
-# Train with LLM-as-a-Verifier (400 steps, about 32 hours)
+# Train with LLM-as-a-Verifier (500 steps, about 40 hours)
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier
-# ... and/or the LLM-as-a-Judge baseline (400 steps, about 25 hours; separately, or at
+# ... and/or the LLM-as-a-Judge baseline (500 steps, about 32 hours; separately, or at
 # the same time in another shell)
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=judge log_path=/tmp/paint_rl/judge
 # Add behavior_if_log_dir_exists=resume to continue from the last checkpoint after an
@@ -57,12 +57,12 @@ Every knob is in
 
 | | |
 |---|---|
-| Steps | 400, each 8 prompts x 5 rollouts |
+| Steps | 500, each 8 prompts x 5 rollouts |
 | Optimizer | importance-sampling policy gradient, group-centered advantages, lr 4e-5 |
 | Reward | `0.05 * compiled + 0.05 * length_ok + 0.90 * score`, in both modes |
 | Verifier | effort 0.2; 3 criteria x 4 slot-swapped repeats, full round robin: 120 calls per group, a whole step (960) in flight |
 | Judge | effort 0.2; 3 calls per painting (one per criterion), letters A-J (10 to 1), mean -> `(s - 1) / 9`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
-| Prompts | 1400: 43 subjects x 8 colors x 4 styles, plus 8 skill prompts x 4 styles; 256 training, 50 held-out spread over every subject |
+| Prompts | 2788: 53 subjects x 13 colors x 4 styles, plus 8 skill prompts x 4 styles; 256 training, 50 held-out spread over every subject |
 | Rendering | 40 sketches at once (one step), ~4 pages per headless browser |
 | Checkpoints | every 5 steps, kept on Tinker indefinitely |
 | Held-out evaluation | separate process, base model + every checkpoint, 50 prompts x 5 paintings, three Kimi-K2.6 calls per painting, one per criterion (750 per checkpoint, all in flight) |
@@ -70,9 +70,9 @@ Every knob is in
 ## How it works
 
 1. **Prompt.** For example, `Paint a teal field of flowers on a rolling hillside in
-   wet-on-wet watercolor wash.` Most prompts are a subject x color x style: 43 subjects
-   drawn from what watercolorists commonly paint (flowers, still-life objects, scenes and
-   two animals, across three difficulty tiers), 8 colors and 4 styles. A few are
+   wet-on-wet watercolor wash.` Most prompts are a subject x color x style: 53 subjects
+   drawn from what watercolorists commonly paint (flowers, still-life objects and fruit,
+   scenes and two animals, across three difficulty tiers), 13 colors and 4 styles. A few are
    fully worded skill prompts that test counting, spatial relations, shape and
    perspective, such as `Paint exactly five red tulips in a vase, in layered watercolor
    glazes.`; they make up about a tenth of training. The 256 training prompts are
@@ -99,7 +99,8 @@ Every knob is in
 
 ## Results
 
-Verifier vs judge, run under the current defaults (400 steps). The two
+Verifier vs judge, run for 400 steps with the defaults of the time (the default is
+now 500 steps and a larger prompt pool). The two
 configs differ only in `reward_mode` (`verifier` vs `judge`): same seed, prompts,
 policy, learning rate and token budget. Held-out: the 50 held-out prompts x 5
 paintings per checkpoint, every 5 steps, graded by Kimi-K2.6 on the three criteria
@@ -203,6 +204,6 @@ the outputs into an HTML gallery, per-step best-painting sheets and comparison c
 |---|---|
 | `tinker-cookbook/` | [tinker-cookbook](https://github.com/thinking-machines-lab/tinker-cookbook), vendored from upstream `e6fa1cc`, with the recipe and a `paint-rl` dependency extra added |
 | `tinker-cookbook/tinker_cookbook/recipes/paint_rl/` | the recipe |
-| `setup.sh` | installs the vendored cookbook with the `paint-rl` extra (`llm-verifier`, `openai`, `playwright`) and Chromium |
+| `setup.sh` | installs the vendored cookbook with the `paint-rl` extra (`llm-verifier`, `openai`, `playwright`, `fastapi`, `uvicorn`) and Chromium |
 | `.env.example` | the credentials the run needs |
 | `results/` | `verifier_vs_judge/`: configs, metrics and checkpoint paths of the verifier and judge runs; `examples_early_to_late.png` |

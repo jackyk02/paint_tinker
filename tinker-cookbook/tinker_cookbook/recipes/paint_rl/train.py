@@ -46,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 @chz.chz
 class CLIConfig:
+    """Run-level knobs; reward-model defaults live in ``verifier.py``'s configs."""
+
     # Policy
     model_name: str = "thinkingmachines/Inkling-Small"
     lora_rank: int = 32
@@ -62,7 +64,7 @@ class CLIConfig:
     # Each step: 8 prompts x 5 rollouts.
     group_size: int = 5
     groups_per_batch: int = 8
-    max_steps: int = 400
+    max_steps: int = 500
     num_substeps: int = 1
     kl_penalty_coef: float = 0.0
     loss_fn: LossFnType = "importance_sampling"
@@ -137,6 +139,7 @@ def _termination_policy(cli: CLIConfig) -> TerminationRewardPolicy:
 
 
 async def cli_main(cli: CLIConfig) -> None:
+    """Assemble the RL training config from the CLI config and train."""
     renderer_name = await checkpoint_utils.resolve_renderer_name_from_checkpoint_or_default_async(
         model_name=cli.model_name,
         explicit_renderer_name=cli.renderer_name,

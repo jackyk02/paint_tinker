@@ -42,6 +42,7 @@ import chz
 import tinker
 from PIL import Image
 
+from tinker_cookbook import model_info
 from tinker_cookbook.recipes.paint_rl.prompts import build_prompt_splits, system_prompt
 from tinker_cookbook.recipes.paint_rl.render import RenderResult, extract_code, get_shared_renderer
 from tinker_cookbook.recipes.paint_rl.verifier import VerifierConfig, get_shared_scorer
@@ -55,15 +56,17 @@ logger = logging.getLogger(__name__)
 
 @chz.chz
 class Config:
+    """CLI config: ``python -m tinker_cookbook.recipes.paint_rl.best_of_n model_path=... prompts.0=...``."""
+
     # Painting requests, in plain text: prompts.0=... prompts.1=... (a request
     # may contain commas).
     prompts: tuple[str, ...] = ()
-    # Also paint the run's 50 held-out prompts (the training split's seed and sizes).
+    # Also paint the 50 held-out prompts (the default split sizes, split with split_seed).
     heldout: bool = False
     # The trained policy: a Tinker sampler checkpoint of base_model.
     model_path: str | None = None
     base_model: str = "thinkingmachines/Inkling-Small"
-    renderer_name: str = "tml_v0"
+    renderer_name: str | None = None  # default: model_info's recommendation for base_model
     n: int = 5
     # Sampling as in training.
     policy_effort: float = 0.7
@@ -79,6 +82,8 @@ class Config:
     from_heldout: str | None = None
     out_dir: str = "/tmp/paint_rl/best_of_n"
     seed: int = 0
+    # The train/held-out split, as in training (train.py's split_seed).
+    split_seed: int = 0
     base_url: str | None = None
 
 
@@ -124,11 +129,16 @@ async def select(
 
 
 class BestOfN:
+    """Sample ``n`` sketches per request, render them, and keep the verifier's top pick."""
+
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.out = Path(cfg.out_dir)
         self.out.mkdir(parents=True, exist_ok=True)
-        self.renderer = get_renderer(cfg.renderer_name, get_tokenizer(cfg.base_model))
+        renderer_name = cfg.renderer_name or model_info.get_recommended_renderer_name(
+            cfg.base_model
+        )
+        self.renderer = get_renderer(renderer_name, get_tokenizer(cfg.base_model))
         self.system = system_prompt(cfg.canvas_size)
         self._sampler: tinker.SamplingClient | None = None
 
@@ -255,7 +265,7 @@ class BestOfN:
         else:
             requests = [(request_id(p), p) for p in self.cfg.prompts]
             if self.cfg.heldout:
-                _, test = build_prompt_splits(seed=self.cfg.seed)
+                _, test = build_prompt_splits(seed=self.cfg.split_seed)
                 requests += [(p.id, p.text) for p in test]
             if not requests:
                 raise ValueError("nothing to paint: pass prompts.0=... and/or heldout=True")
@@ -291,6 +301,7 @@ def selection_summary(rows: list[dict]) -> dict[str, float]:
 
 
 async def main(cfg: Config) -> None:
+    """Paint every request (and/or the held-out prompts) and write the results to ``out_dir``."""
     await BestOfN(cfg).run()
 
 

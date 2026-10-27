@@ -14,7 +14,8 @@ has something to resolve:
   prompt-adherence criterion asks for an unmistakable, specific depiction.
 * **Colors and styles are visually separable** at 448 px (no golden/ochre,
   no rose-pink/coral/crimson, no loose/splashy/wet-on-wet near-synonyms), so
-  the color- and style-fidelity criteria score signal rather than noise.
+  the color- and style-fidelity criteria score signal rather than noise. The
+  one deliberate near pair is blue violet next to violet and indigo.
 * **A few skill prompts.** Eight fully worded requests test object counting,
   spatial relationships, shape and perspective (``SKILL_PROMPTS``). They name
   their own colors, so each is crossed with the four styles only, and they
@@ -50,7 +51,7 @@ Hard rules:
     brush.stroke(css_color)  brush.noStroke()  brush.strokeWeight(multiplier)
     brush.fill(css_color, opacity_0_to_255)  brush.noFill()
     brush.bleed(strength_0_to_0.5, "out" or "in")  brush.fillTexture(texture_0_to_1, border_0_to_1)
-    brush.line(x1, y1, x2, y2)  brush.circle(x, y, radius)  brush.rect(x, y, w, h)
+    brush.line(x1, y1, x2, y2)  brush.flowLine(x, y, length, angle_degrees)  brush.circle(x, y, radius)  brush.rect(x, y, w, h)
     brush.polygon([[x, y], ...])  brush.spline([[x, y], ...], curvature_0_to_1)
     brush.beginShape(curvature_0_to_1); brush.vertex(x, y); ...; brush.endShape(CLOSE)
     brush.hatch(spacing, angle_degrees)  brush.noHatch()
@@ -59,11 +60,12 @@ Hard rules:
 - List the vertices of every filled shape CLOCKWISE, otherwise the watercolor bleed inverts.
 - Plain p5 helpers are fine for maths and color: random, noise, sin, cos, map, lerp, constrain, color, lerpColor, PI.
 
-Painting advice: build the image from several translucent washes (fill opacity 40-120 with bleed 0.1-0.4), let colors overlap and pool, vary edge softness, keep pencil or marker outlines sparse and broken, and fill most of the canvas with a clear, recognizable subject.
+Painting advice: build the image from several translucent washes (fill opacity 40-120 with bleed 0.1-0.4), let colors overlap and pool, vary edge softness, keep pencil or marker outlines sparse and broken, avoid piling up many brush.line and brush.flowLine calls (use them only where a line is truly needed, and paint forms with filled shapes instead), and fill most of the canvas with a clear, recognizable subject.
 """
 
 
 def system_prompt(canvas_size: int) -> str:
+    """The policy's system prompt for a ``canvas_size`` x ``canvas_size`` canvas."""
     return SYSTEM_PROMPT_TEMPLATE.replace("{size}", str(canvas_size)).replace(
         "{half}", str(canvas_size // 2)
     )
@@ -91,14 +93,20 @@ class Subject:
         return f"{self.name} {self.context}".strip()
 
 
-# What watercolorists paint most: flowers, still-life objects and scenes,
-# each family spanning all three tiers, plus two animals.
+# What watercolorists paint most: flowers, still-life objects (including
+# fruit) and scenes, each family spanning all three tiers, plus two animals.
 SUBJECTS: tuple[Subject, ...] = (
     # flowers
     Subject("sunflower", "", 1, "flower"),
     Subject("rose", "", 1, "flower"),
     Subject("tulip", "", 1, "flower"),
     Subject("daisy", "", 1, "flower"),
+    Subject("iris", "", 1, "flower"),
+    Subject("lily", "", 1, "flower"),
+    Subject("hydrangea", "", 1, "flower"),
+    Subject("orchid", "in a terracotta pot", 2, "flower"),
+    Subject("foxgloves", "along a cottage wall", 2, "flower"),
+    Subject("lavender field", "stretching toward a distant farmhouse", 3, "flower"),
     Subject("lotus blossom", "floating on a still pond", 2, "flower"),
     Subject("cherry blossom branch", "against a pale sky", 2, "flower"),
     Subject("poppy field", "under a summer sky", 2, "flower"),
@@ -112,6 +120,12 @@ SUBJECTS: tuple[Subject, ...] = (
     Subject("field of flowers", "with a path leading to a distant cottage", 3, "flower"),
     # still-life objects
     Subject("pear", "", 1, "object"),
+    Subject("peach", "", 1, "object"),
+    Subject("pomegranate", "", 1, "object"),
+    Subject("bunch of grapes", "", 1, "object"),
+    Subject("sliced watermelon", "on a white plate", 2, "object"),
+    Subject("bowl of cherries", "on a lace cloth", 2, "object"),
+    Subject("bunch of bananas", "beside a striped teacup", 3, "object"),
     Subject("hot air balloon", "", 1, "object"),
     Subject("watering can", "", 1, "object"),
     Subject("cup of coffee", "on a wooden table", 2, "object"),
@@ -130,20 +144,19 @@ SUBJECTS: tuple[Subject, ...] = (
     Subject("mountain lake", "at dawn", 2, "scene"),
     Subject("old oak tree", "alone in a meadow", 2, "scene"),
     Subject("sailboat", "on a calm sea", 2, "scene"),
-    Subject("birch forest", "in autumn", 2, "scene"),
+    Subject("forest", "in autumn", 2, "scene"),
     Subject("lighthouse", "with a sailboat passing in front of it", 3, "scene"),
     Subject("village street", "leading to a church under a crescent moon", 3, "scene"),
     Subject("stone bridge", "arching over a quiet river", 3, "scene"),
     Subject("classical building", "with columns and arched windows", 2, "scene"),
-    Subject("creepypasta figure", "lurking at the edge of a foggy forest", 3, "scene"),
-    Subject("Golden Gate Bridge", "", 1, "scene"),
     Subject("forest path", "in dappled sunlight", 2, "scene"),
     # animals
     Subject("flock of birds", "in flight across the sky", 2, "animal"),
     Subject("fish", "swimming in a clear stream", 2, "animal"),
 )
 
-# Eight hues that stay distinct in a 448 px watercolor.
+# Hues that stay distinct in a 448 px watercolor ("blue violet" is the one
+# near neighbor: it sits between "violet" and "indigo").
 COLORS: tuple[str, ...] = (
     "crimson",
     "coral",
@@ -153,6 +166,11 @@ COLORS: tuple[str, ...] = (
     "indigo",
     "violet",
     "sepia",
+    "magenta",
+    "olive",
+    "sky blue",
+    "charcoal gray",
+    "blue violet",
 )
 
 # Four styles, each with a visual signature a reviewer can check.
@@ -183,13 +201,6 @@ class PaintPrompt:
 
 def _article(word: str) -> str:
     return "an" if word[0].lower() in "aeiou" else "a"
-
-
-# (subject name, color) pairs left out of the pool. "a golden Golden Gate
-# Bridge" would read as a typo.
-EXCLUDED_COMBOS: frozenset[tuple[str, str]] = frozenset(
-    {("creepypasta figure", "indigo"), ("Golden Gate Bridge", "golden")}
-)
 
 
 @dataclass(frozen=True)
@@ -230,13 +241,11 @@ SKILL_PROMPTS: tuple[SkillPrompt, ...] = (
 
 
 def build_prompt_pool() -> list[PaintPrompt]:
-    """Every (subject, color, style) combination, in a fixed order, minus
-    EXCLUDED_COMBOS, then every skill prompt in each style."""
+    """Every (subject, color, style) combination, in a fixed order, then
+    every skill prompt in each style."""
     prompts: list[PaintPrompt] = []
     for si, subject in enumerate(SUBJECTS):
         for ci, color in enumerate(COLORS):
-            if (subject.name, color) in EXCLUDED_COMBOS:
-                continue
             for ti, style in enumerate(STYLES):
                 text = f"Paint {_article(color)} {color} {subject.phrase} in {style}."
                 prompts.append(

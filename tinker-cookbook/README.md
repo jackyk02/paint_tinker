@@ -102,6 +102,7 @@ We also include more complete examples in the [`tinker_cookbook/recipes/`](tinke
 - **[Multi-agent](tinker_cookbook/recipes/multiplayer_rl/)**: multi-agent RL with self-play and cross-play.
 - **[Audio](tinker_cookbook/recipes/audio/)**: SFT and RL for Inkling audio inputs, including speech recognition and speaking-style classification.
 - **[VLM image classification](tinker_cookbook/recipes/vlm_classifier/)**: supervised training and evaluation for vision-language models.
+- **[Paint with code](tinker_cookbook/recipes/paint_rl/)**: RL for painting with p5.brush sketches, rewarded by a multimodal LLM-as-a-Verifier that compares the rendered images.
 
 The [recipes README](tinker_cookbook/recipes/README.md) covers all available recipes, including Harbor RL, rubric-based grading, VLM classification, and SDFT. Each recipe includes a `README.md` with implementation details, launch commands, and expected results.
 

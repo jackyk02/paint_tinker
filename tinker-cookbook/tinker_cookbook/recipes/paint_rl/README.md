@@ -35,14 +35,15 @@ differ only in how the paintings are scored.
 ## Running
 
 ```bash
-pip install -e ".[paint-rl]"     # llm-verifier, openai, playwright
+pip install -e ".[paint-rl]"     # llm-verifier, openai, playwright, fastapi, uvicorn
 python -m playwright install --with-deps chromium
+# Optional: compare_runs.py needs matplotlib; render_backend=modal needs the modal extra.
 
 export TINKER_API_KEY=...   # policy, reward model and held-out evaluator all run on Tinker
 
-# LLM-as-a-Verifier (400 steps, about 32 hours)
+# LLM-as-a-Verifier (500 steps, about 40 hours)
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier
-# LLM-as-a-Judge baseline (400 steps, about 25 hours; separately, or at the same time
+# LLM-as-a-Judge baseline (500 steps, about 32 hours; separately, or at the same time
 # in another shell)
 python -m tinker_cookbook.recipes.paint_rl.train reward_mode=judge log_path=/tmp/paint_rl/judge
 # Resume after an interruption, or train further by raising max_steps:
@@ -63,7 +64,7 @@ python -m tinker_cookbook.recipes.paint_rl.compare_runs \
     runs='{"verifier": "/tmp/paint_rl/verifier", "judge": "/tmp/paint_rl/judge"}' out=compare.png
 ```
 
-Defaults: 8 prompts x 5 rollouts per step, 400 steps, LoRA rank 32, learning
+Defaults: 8 prompts x 5 rollouts per step, 500 steps, LoRA rank 32, learning
 rate 4e-5. A checkpoint is saved every 5 steps and kept on Tinker indefinitely
 (`checkpoint_ttl_seconds=None`; the cookbook default would expire periodic
 checkpoints after 7 days); they are listed in `<log_path>/checkpoints.jsonl`.
@@ -71,7 +72,7 @@ checkpoints after 7 days); they are listed in `<log_path>/checkpoints.jsonl`.
 train/held-out split comes from `split_seed`, so runs with different seeds are
 scored on the same held-out prompts.
 `hyperparam_utils.get_lr` has no calibrated value for Inkling; 4e-5 worked
-for the run in the top-level README, but sweep the learning rate and
+for the runs under Results below, but sweep the learning rate and
 the effort settings (`policy_effort`, `verifier.effort`, `judge.effort`) if
 you change the model. Run-level knobs are in `train.py`; the reward-model and
 evaluator defaults live once, in `verifier.py`'s `VerifierConfig`,
@@ -90,17 +91,17 @@ sampling on Tinker is never throttled.
 
 1. **Prompt.** For example, `Paint a teal field of flowers on a rolling
    hillside in wet-on-wet watercolor wash.` Most of the pool (`prompts.py`)
-   is subject x color x style: 43 subjects (flowers, still-life objects,
-   scenes and two animals) in three difficulty tiers (a single subject, a
-   subject in a setting, two elements in a spatial relation), 8 colors and 4
-   styles that stay visually distinct at 448 px. Eight fully worded skill
+   is subject x color x style: 53 subjects (flowers, fruit and other
+   still-life objects, scenes and two animals) in three difficulty tiers (a
+   single subject, a subject in a setting, two elements in a spatial
+   relation), 13 colors and 4 styles that stay visually distinct at 448 px. Eight fully worded skill
    prompts test object counting, spatial relationships, shape and
    perspective (`Paint a blue vase to the left of a yellow teacup, in
    layered watercolor glazes.`); they name their own colors, so they are
    crossed with the styles only and make up about a tenth of training. The
    256 training prompts are balanced over subjects, colors and styles. The 50
    held-out prompts are spread over every subject and are never trained on. `prompts_test.py` pins the split. The system prompt allows a fixed list of
-   about 20 brush calls and gives no API documentation; the original project
+   about two dozen brush calls and gives no API documentation; the original project
    found that a long API reference made the model call functions that don't
    exist.
 2. **Sketch.** The policy replies with one `javascript` block that defines
@@ -195,20 +196,21 @@ Useful metrics in `metrics.jsonl`:
 - `env/all/reward/compile_ok`: compile gate pass rate.
 - `env/all/reward/score_if_compiled`: reward-model score of compiled paintings.
 - `env/all/scorer/top_tie`: fraction of groups whose top score is tied.
-- `env/all/scorer/failed_frac`: reward-model calls that failed, ran out of tokens or gave no parseable score (scored as 0.5); should stay near 0.
+- `env/all/scorer/failed_frac`: reward-model calls that failed, ran out of tokens or gave no parseable score; should stay near 0. The verifier scores such a comparison 0.5; the judge leaves the call out of the painting's mean and falls back to 0.5 only when none of its calls succeeded.
 - `test/env/all/eval_strong/score` (in `heldout_eval/metrics.jsonl`): Kimi's held-out score, the headline number.
 - `test/env/tier3/...`, `test/env/skill/...`: held-out metrics broken out by tier and by subject family (`flower`, `object`, `scene`, `animal`, `skill`).
 
 ## Results
 
-Under the current defaults (run to 400 steps), the verifier beat the judge on
+Run for 400 steps with the defaults of the time (the default is now 500
+steps and a larger prompt pool), the verifier beat the judge on
 the held-out Kimi score: 0.712 vs 0.674 at step 400 (0.453 and 0.442 at the
 base model), and 0.660 vs 0.627 averaged over steps 150-400, with pass@5 of
 65.5% vs 60.3%. The two were even for the first ~100 steps. The judge's top
 score was tied in 38% of groups, the verifier's in none. Curves, the full
-table and every checkpoint's Tinker path are in the
-[top-level README](https://github.com/jackyk02/paint_tinker#results) and
-`results/verifier_vs_judge/`.
+table, both runs' configs and metrics, and every checkpoint's Tinker path are
+in the [paint_tinker](https://github.com/jackyk02/paint_tinker#results)
+repository (`results/verifier_vs_judge/`).
 
 ## Test-time best-of-n
 

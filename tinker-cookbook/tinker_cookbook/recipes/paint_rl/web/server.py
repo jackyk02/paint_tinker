@@ -19,11 +19,13 @@ so expose it deliberately (each request costs sampling and verifier calls).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
 import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,8 @@ _FILE = re.compile(r"^(best|candidate_[0-9]{1,2})\.(png|js)$")
 
 @chz.chz
 class Config:
+    """CLI config: ``python -m tinker_cookbook.recipes.paint_rl.web.server model_path=...``."""
+
     model_path: str
     host: str = "127.0.0.1"
     port: int = 8000
@@ -56,7 +60,8 @@ class Config:
     max_concurrent_jobs: int = 4
     max_queued_jobs: int = 32
     max_prompt_chars: int = 300
-    model_label: str = "Inkling-Small, RL step 400 (verifier reward)"
+    # Shown in the page footer; describe whatever model_path points at.
+    model_label: str = "Inkling-Small, RL-trained (LLM-as-a-Verifier reward)"
 
 
 @dataclass
@@ -104,11 +109,18 @@ def _candidates(row: dict[str, Any], url: str) -> list[dict[str, Any]]:
 
 
 def build_app(cfg: Config) -> FastAPI:
-    app = FastAPI(title="paint_rl studio", docs_url=None, redoc_url=None)
+    """The FastAPI app: the page, the paint/queue endpoints and the examples."""
     jobs_dir = Path(cfg.out_dir) / "jobs"
     bon = best_of_n.BestOfN(
         best_of_n.Config(model_path=cfg.model_path, n=cfg.n, out_dir=str(jobs_dir))
     )
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await bon.sampler()  # fail fast on a bad model_path or key
+        yield
+
+    app = FastAPI(title="paint_rl studio", docs_url=None, redoc_url=None, lifespan=lifespan)
     jobs: dict[str, Job] = {}
     slots = asyncio.Semaphore(cfg.max_concurrent_jobs)
     tasks: set[asyncio.Task[None]] = set()
@@ -130,10 +142,6 @@ def build_app(cfg: Config) -> FastAPI:
                 job.stage = "failed"
             finally:
                 job.finished = time.time()
-
-    @app.on_event("startup")
-    async def _startup() -> None:
-        await bon.sampler()  # fail fast on a bad model_path or key
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
@@ -216,6 +224,7 @@ def build_app(cfg: Config) -> FastAPI:
 
 
 def main(cfg: Config) -> None:
+    """Serve the studio on ``cfg.host:cfg.port``."""
     uvicorn.run(build_app(cfg), host=cfg.host, port=cfg.port, log_level="info")
 
 
