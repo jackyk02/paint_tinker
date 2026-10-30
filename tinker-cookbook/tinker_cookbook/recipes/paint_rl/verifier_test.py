@@ -176,23 +176,15 @@ def test_judge_can_grade_with_letters():
     assert extract_letter_score("<score> LETTER_A_TO_T </score>", 20) is None
 
 
-def test_judge_grades_a_to_e_and_heldout_evaluator_a_to_j_by_default():
+def test_judge_and_heldout_evaluator_grade_a_to_j_by_default():
     from tinker_cookbook.recipes.paint_rl.verifier import (
         EvaluatorConfig,
         JudgeConfig,
         absolute_prompt,
-        extract_letter_score,
         resolve_criteria,
     )
 
-    for cfg, last in ((JudgeConfig(), "E"), (EvaluatorConfig(), "J")):
-        assert len(resolve_criteria(cfg.criteria)) == 3
-        assert cfg.letter_grades == ord(last) - ord("A") + 1
+    for cfg in (EvaluatorConfig(), JudgeConfig()):
+        assert cfg.letter_grades == 10 and len(resolve_criteria(cfg.criteria)) == 3
         prompt = absolute_prompt("p", resolve_criteria(cfg.criteria)[0], cfg.letter_grades)
-        assert f"<score> LETTER_A_TO_{last} </score>" in prompt and f"A-{last}" in prompt
-    # A-E: A is 1.0, C the midpoint, E 0.0, and F is off the scale
-    g = JudgeConfig().letter_grades
-    assert extract_letter_score("<score> A </score>", g) == 1.0
-    assert extract_letter_score("<score> C </score>", g) == 0.5
-    assert extract_letter_score("<score> E </score>", g) == 0.0
-    assert extract_letter_score("<score> F </score>", g) is None
+        assert "<score> LETTER_A_TO_J </score>" in prompt and "A-J" in prompt

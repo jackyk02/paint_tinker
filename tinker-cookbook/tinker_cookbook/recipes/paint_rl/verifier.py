@@ -20,7 +20,7 @@ with one is directly comparable to a run with the other:
 
 * :class:`AbsoluteJudge` — the LLM-as-a-Judge baseline: each painting is
   scored on its own on the verifier's three criteria, one call each, as a
-  written letter A-E (a 1-5 scale, A best) read from the judge's reply and
+  written letter A-J (a 1-10 scale, A best) read from the judge's reply and
   mapped to [0, 1]; its reward is the mean of the three. Paintings with the same scores get the same
   reward (and so the same advantage); how often the top of a group is tied is
   reported as ``scorer/top_tie``.
@@ -34,7 +34,7 @@ with one is directly comparable to a run with the other:
 * :class:`HeldoutEvaluator` — the held-out yardstick: ``moonshotai/Kimi-K2.6``
   on Tinker's native sampler scores each held-out painting on its own on each
   of the verifier's three criteria, one written A-J letter per criterion,
-  with the judge's prompts on a finer scale (A-J, not A-E), normalized to [0, 1]. It
+  with the judge's prompts, normalized to [0, 1]. It
   never trains anything; it gives every checkpoint of every
   run, verifier or judge, a score on one fixed scale.
 """
@@ -82,11 +82,9 @@ DEFAULT_REWARD_CONCURRENCY = 1200
 
 DEFAULT_EVALUATOR_MODEL = "moonshotai/Kimi-K2.6"
 
-# The held-out evaluator's scale: A-J, a standard 1-10 scale
+# The judge's and the held-out evaluator's scale: A-J, a standard 1-10 scale
 # (A = 10 = 1.0, J = 1 = 0.0).
 LETTER_GRADES = 10
-# The judge reward's scale: A-E, a 1-5 scale (A = 5 = 1.0, E = 1 = 0.0).
-JUDGE_LETTER_GRADES = 5
 
 TINKER_OPENAI_BASE_URL = "https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1"
 
@@ -219,7 +217,7 @@ class JudgeConfig:
     # Each is its own call per painting, and a painting's reward is the mean.
     criteria: tuple[str, ...] = ()
     # One written letter per criterion, A (best) to the Nth letter (worst).
-    letter_grades: int = JUDGE_LETTER_GRADES
+    letter_grades: int = LETTER_GRADES
     # Independent judgments per painting and criterion, averaged.
     n_evaluations: int = 1
     image_size: int = 448
@@ -244,7 +242,7 @@ class EvaluatorConfig:
     # the judge scores them.
     criteria: tuple[str, ...] = ()
     # Each criterion graded with one written letter from A (outstanding) to
-    # the Nth letter (complete failure); A-J, finer than the judge's A-E.
+    # the Nth letter (complete failure), as the judge grades it.
     letter_grades: int = LETTER_GRADES
     image_size: int = 448
     # One checkpoint is 50 prompts x 5 paintings x 3 criteria = 750 calls;
@@ -588,7 +586,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
 
 
 # ---------------------------------------------------------------------------
-# LLM-as-a-Judge: one painting at a time, each criterion graded A-E
+# LLM-as-a-Judge: one painting at a time, each criterion graded A-J
 # ---------------------------------------------------------------------------
 
 _ABSOLUTE_PREAMBLE = (
