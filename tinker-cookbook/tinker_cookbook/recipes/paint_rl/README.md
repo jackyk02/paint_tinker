@@ -20,8 +20,8 @@ at the two rendered paintings through its native image input.
 
 `reward_mode=judge` swaps in the classic **LLM-as-a-Judge** baseline: the
 same model at the same effort scores each painting on its own on the
-verifier's three criteria, one call each, as a letter A-J (the standard
-1-10 scale, A best), and averages them. Everything else (policy, prompts,
+verifier's three criteria, one call each, as a letter A-E (a 1-5 scale,
+A best), and averages them. Everything else (policy, prompts,
 batch, reward weights, token budget, concurrency) is shared, so the two runs
 differ only in how the paintings are scored.
 
@@ -29,7 +29,7 @@ differ only in how the paintings are scored.
 |---|---|---|
 | Policy | `thinkingmachines/Inkling-Small` | LoRA rank 32, `tml_v0` renderer, thinking effort 0.7, 8k token budget |
 | Training reward, `verifier` | `thinkingmachines/Inkling-Small` | `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, pairwise round-robin tournament, 4 repeats |
-| Training reward, `judge` | `thinkingmachines/Inkling-Small` | Same endpoint, thinking effort 0.2; absolute letter A-J (1-10) per painting on each of the verifier's three criteria, averaged; 3 calls per painting |
+| Training reward, `judge` | `thinkingmachines/Inkling-Small` | Same endpoint, thinking effort 0.2; absolute letter A-E (1-5) per painting on each of the verifier's three criteria, averaged; 3 calls per painting |
 | Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; separate from the reward and never trained against |
 
 ## Running
@@ -89,18 +89,15 @@ sampling on Tinker is never throttled.
 
 ## The loop
 
-1. **Prompt.** For example, `Paint a teal field of flowers on a rolling
-   hillside in wet-on-wet watercolor wash.` Most of the pool (`prompts.py`)
-   is subject x color x style: 53 subjects (flowers, fruit and other
-   still-life objects, scenes and two animals) in three difficulty tiers (a
-   single subject, a subject in a setting, two elements in a spatial
-   relation), 13 colors and 4 styles that stay visually distinct at 448 px. Eight fully worded skill
-   prompts test object counting, spatial relationships, shape and
-   perspective (`Paint a blue vase to the left of a yellow teacup, in
-   layered watercolor glazes.`); they name their own colors, so they are
-   crossed with the styles only and make up about a tenth of training. The
-   256 training prompts are balanced over subjects, colors and styles. The 50
-   held-out prompts are spread over every subject and are never trained on. `prompts_test.py` pins the split. The system prompt allows a fixed list of
+1. **Prompt.** For example, `Paint a teal sunflower in wet-on-wet
+   watercolor wash.` The pool (`prompts.py`) is subject x color x style,
+   restricted to tier 1 (`TIERS`): 19 single subjects (flowers, fruit and
+   other still-life objects, and scenes), 13 colors and 4 styles that stay
+   visually distinct at 448 px, 988 prompts in all. The tier-2 and tier-3
+   subjects and the skill prompts stay defined in `prompts.py` but are left
+   out of both training and held-out prompts. The 256 training prompts are
+   balanced over subjects, colors and styles. The 50 held-out prompts are
+   spread over every subject and are never trained on. `prompts_test.py` pins the split. The system prompt allows a fixed list of
    about two dozen brush calls and gives no API documentation; the original project
    found that a long API reference made the model call functions that don't
    exist.
@@ -116,9 +113,9 @@ sampling on Tinker is never throttled.
    compiled paintings is compared once per criterion and repeat. A group of 5
    gives 10 pairs x 3 criteria x 4 repeats = 120 comparisons, and a
    painting's score is its mean grade across every comparison it appears in.
-   With the **judge**, each compiled painting gets a letter grade A-J (10 to
+   With the **judge**, each compiled painting gets a letter grade A-E (5 to
    1) on each of the same three criteria, one call each; its score is the
-   mean, mapped to `(s - 1) / 9`. Paintings with equal scores get equal rewards, and
+   mean, mapped to `(s - 1) / 4`. Paintings with equal scores get equal rewards, and
    so equal advantages. Either way, sketches that fail the compile gate score
    0 and are not scored.
 5. **Update.** `reward = 0.05 * compiled + 0.05 * length_ok + 0.90 * score`.
@@ -149,13 +146,13 @@ endpoint.
 
 With the default four repeats per criterion, the odd repeats swap the two
 image slots, so each pair is judged twice in each order and the verifier's
-bias toward one position cancels out within each pair. The three criteria are scored separately: content fidelity
-(every named element, count, position and shape), color and style fidelity,
-and watercolor craft and composition.
+bias toward one position cancels out within each pair. The three criteria are scored separately: subject and prompt
+fidelity (subject, scene and colors), watercolor technique (washes, edges and
+the requested style), and composition and aesthetic appeal.
 
 ## Verifier vs judge: ties
 
-A judge grading on a fixed scale (A-J) often gives the best paintings in a group the same
+A judge grading on a fixed scale (A-E) often gives the best paintings in a group the same
 score; tied paintings get the same advantage, so the update carries no signal
 between them. `scorer/top_tie` is the fraction of groups (with at least two
 compiled paintings) whose highest score is shared by more than one painting.
@@ -180,7 +177,7 @@ in `train.py` (default 0) still runs the same evaluation inline if you prefer.
 Kimi's scores never enter the reward. The verifier's reward is relative to
 the other paintings in a group, and the judge's is on its own scale, so
 neither can be compared across steps or runs; the Kimi score is the fixed
-yardstick. Kimi is asked exactly what the judge is asked: a letter A-J (1-10) on
+yardstick. Kimi is asked what the judge is asked, on a finer scale: a letter A-J (1-10) on
 each of the verifier's three criteria, one call each, read from its reply;
 a painting's score is the mean, normalized to 0-1 as `(s - 1) / 9` (750
 calls per checkpoint). Kimi runs on Tinker's native sampler through the
@@ -198,7 +195,7 @@ Useful metrics in `metrics.jsonl`:
 - `env/all/scorer/top_tie`: fraction of groups whose top score is tied.
 - `env/all/scorer/failed_frac`: reward-model calls that failed, ran out of tokens or gave no parseable score; should stay near 0. The verifier scores such a comparison 0.5; the judge leaves the call out of the painting's mean and falls back to 0.5 only when none of its calls succeeded.
 - `test/env/all/eval_strong/score` (in `heldout_eval/metrics.jsonl`): Kimi's held-out score, the headline number.
-- `test/env/tier3/...`, `test/env/skill/...`: held-out metrics broken out by tier and by subject family (`flower`, `object`, `scene`, `animal`, `skill`).
+- `test/env/tier1/...`, `test/env/flower/...`: held-out metrics broken out by tier and by subject family (`flower`, `object`, `scene`; only tier 1 is in the pool).
 
 ## Results
 

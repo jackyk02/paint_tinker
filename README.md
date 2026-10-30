@@ -21,8 +21,8 @@ checkpoints. Each cell is the best of that step's five paintings by Gemini score
 |---|---|---|
 | Policy | `thinkingmachines/Inkling-Small` | LoRA rank 32 on Tinker, `tml_v0` renderer, thinking effort 0.7, 8k-token budget |
 | Training reward (`reward_mode=verifier`, default) | `thinkingmachines/Inkling-Small` | Self-verification with `llm_verifier.compare` over Tinker's OpenAI-compatible endpoint, thinking effort 0.2, token logprobs, 4 repeats |
-| Training reward (`reward_mode=judge`) | `thinkingmachines/Inkling-Small` | LLM-as-a-Judge: same endpoint, thinking effort 0.2, an absolute letter grade A-J (1-10) per painting on each of the verifier's three criteria |
-| Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; the judge's prompts, an absolute letter grade A-J (1-10) per held-out painting on each of the three criteria, normalized to 0-1; never part of the reward |
+| Training reward (`reward_mode=judge`) | `thinkingmachines/Inkling-Small` | LLM-as-a-Judge: same endpoint, thinking effort 0.2, an absolute letter grade A-E (1-5) per painting on each of the verifier's three criteria |
+| Held-out evaluator | `moonshotai/Kimi-K2.6` | Tinker's native sampler; the judge's prompts on a finer scale, an absolute letter grade A-J (1-10) per held-out painting on each of the three criteria, normalized to 0-1; never part of the reward |
 
 ## Quickstart
 
@@ -61,7 +61,7 @@ Every knob is in
 | Optimizer | importance-sampling policy gradient, group-centered advantages, lr 4e-5 |
 | Reward | `0.05 * compiled + 0.05 * length_ok + 0.90 * score`, in both modes |
 | Verifier | effort 0.2; 3 criteria x 4 slot-swapped repeats, full round robin: 120 calls per group, a whole step (960) in flight |
-| Judge | effort 0.2; 3 calls per painting (one per criterion), letters A-J (10 to 1), mean -> `(s - 1) / 9`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
+| Judge | effort 0.2; 3 calls per painting (one per criterion), letters A-E (5 to 1), mean -> `(s - 1) / 4`; tied paintings get equal reward; `scorer/top_tie` logs how often a group's top score is tied |
 | Prompts | 2788: 53 subjects x 13 colors x 4 styles, plus 8 skill prompts x 4 styles; 256 training, 50 held-out spread over every subject |
 | Rendering | 40 sketches at once (one step), ~4 pages per headless browser |
 | Checkpoints | every 5 steps, kept on Tinker indefinitely |
@@ -69,16 +69,13 @@ Every knob is in
 
 ## How it works
 
-1. **Prompt.** For example, `Paint a teal field of flowers on a rolling hillside in
-   wet-on-wet watercolor wash.` Most prompts are a subject x color x style: 53 subjects
-   drawn from what watercolorists commonly paint (flowers, still-life objects and fruit,
-   scenes and two animals, across three difficulty tiers), 13 colors and 4 styles. A few are
-   fully worded skill prompts that test counting, spatial relations, shape and
-   perspective, such as `Paint exactly five red tulips in a vase, in layered watercolor
-   glazes.`; they make up about a tenth of training. The 256 training prompts are
-   balanced over subjects, colors and styles; the 50 held-out prompts are spread over
-   every subject and are never trained on. `prompts.py` has the pool and
-   `prompts_test.py` pins the split.
+1. **Prompt.** For example, `Paint a teal sunflower in wet-on-wet watercolor wash.` Every
+   prompt is a tier-1 subject x color x style: 19 single subjects drawn from what
+   watercolorists commonly paint (flowers, still-life objects and fruit, and scenes), 13
+   colors and 4 styles, 988 prompts in all. The higher-tier subjects and skill prompts are
+   left out of both training and held-out prompts. The 256 training prompts are balanced
+   over subjects, colors and styles; the 50 held-out prompts are spread over every subject
+   and are never trained on. `prompts.py` has the pool and `prompts_test.py` pins the split.
 2. **Sketch.** The policy replies with one `javascript` block that defines `setup()` on a
    512x512 WEBGL canvas, using only an allow-list of about 20 brush calls. The page
    renders one frame and stops the draw loop itself.
@@ -86,12 +83,12 @@ Every knob is in
    A sketch *compiles* if it throws no error, makes at least three distinct `brush.*`
    drawing calls, and paints a non-blank canvas.
 4. **Score.** *Verifier:* every pair of compiled paintings in a group is compared on one
-   criterion at a time (content fidelity, color and style fidelity, watercolor craft and
-   composition), four times, with the two slots swapped on alternate repeats so position
+   criterion at a time (subject and prompt fidelity, watercolor technique, composition and
+   aesthetic appeal), four times, with the two slots swapped on alternate repeats so position
    bias cancels. The verifier
    grades each painting A-T, and the score is the *expected* grade under its token
    probabilities, not the sampled letter. A painting's score is its mean over the
-   comparisons it took part in. *Judge:* each compiled painting is graded A-J (a 1-10 scale) on each of
+   comparisons it took part in. *Judge:* each compiled painting is graded A-E (a 1-5 scale) on each of
    the same three criteria, one call each, and its score is the mean. In both modes, sketches that did not compile score 0 and sit
    out.
 5. **Update.** Rewards are centered within each group and fed to an importance-sampling

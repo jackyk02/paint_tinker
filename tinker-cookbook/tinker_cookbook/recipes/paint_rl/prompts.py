@@ -11,10 +11,10 @@ has something to resolve:
   objects, scenes and a few animals, in three difficulty tiers: tier 1 a single
   subject, tier 2 a subject in a setting, tier 3 two named elements in a
   spatial relation. A vague flower is the easiest blob to pass off, so the
-  prompt-adherence criterion asks for an unmistakable, specific depiction.
+  subject-fidelity criterion asks for a clear, specific depiction.
 * **Colors and styles are visually separable** at 448 px (no golden/ochre,
   no rose-pink/coral/crimson, no loose/splashy/wet-on-wet near-synonyms), so
-  the color- and style-fidelity criteria score signal rather than noise. The
+  the fidelity and technique criteria score signal rather than noise. The
   one deliberate near pair is blue violet next to violet and indigo.
 * **A few skill prompts.** Eight fully worded requests test object counting,
   spatial relationships, shape and perspective (``SKILL_PROMPTS``). They name
@@ -25,6 +25,11 @@ has something to resolve:
   exact prompts never appear in training, but every subject does. Training
   prompts are balanced over subjects so no subject is memorized more than
   another.
+
+On this branch the pool is restricted to ``TIERS`` (tier 1 only), so both
+training and held-out prompts are single subjects; the higher-tier subjects
+and the skill prompts (all tier 2 or 3) stay defined, with their ids, but
+are left out of the pool.
 
 The split is deterministic in the seed and pinned by ``prompts_test.py``: a
 change to the pool that moves the held-out set fails the test on purpose.
@@ -240,11 +245,18 @@ SKILL_PROMPTS: tuple[SkillPrompt, ...] = (
 )
 
 
+# Difficulty tiers kept in the pool, for training and held-out alike.
+TIERS: tuple[int, ...] = (1,)
+
+
 def build_prompt_pool() -> list[PaintPrompt]:
     """Every (subject, color, style) combination, in a fixed order, then
-    every skill prompt in each style."""
+    every skill prompt in each style; only those in ``TIERS``. Ids index the
+    full SUBJECTS / SKILL_PROMPTS lists, so they do not move with ``TIERS``."""
     prompts: list[PaintPrompt] = []
     for si, subject in enumerate(SUBJECTS):
+        if subject.tier not in TIERS:
+            continue
         for ci, color in enumerate(COLORS):
             for ti, style in enumerate(STYLES):
                 text = f"Paint {_article(color)} {color} {subject.phrase} in {style}."
@@ -260,6 +272,8 @@ def build_prompt_pool() -> list[PaintPrompt]:
                     )
                 )
     for ki, skill in enumerate(SKILL_PROMPTS):
+        if skill.tier not in TIERS:
+            continue
         for ti, style in enumerate(STYLES):
             prompts.append(
                 PaintPrompt(

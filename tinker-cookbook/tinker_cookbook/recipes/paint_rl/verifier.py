@@ -20,7 +20,7 @@ with one is directly comparable to a run with the other:
 
 * :class:`AbsoluteJudge` — the LLM-as-a-Judge baseline: each painting is
   scored on its own on the verifier's three criteria, one call each, as a
-  written letter A-J (a 1-10 scale, A best) read from the judge's reply and
+  written letter A-E (a 1-5 scale, A best) read from the judge's reply and
   mapped to [0, 1]; its reward is the mean of the three. Paintings with the same scores get the same
   reward (and so the same advantage); how often the top of a group is tied is
   reported as ``scorer/top_tie``.
@@ -34,7 +34,7 @@ with one is directly comparable to a run with the other:
 * :class:`HeldoutEvaluator` — the held-out yardstick: ``moonshotai/Kimi-K2.6``
   on Tinker's native sampler scores each held-out painting on its own on each
   of the verifier's three criteria, one written A-J letter per criterion,
-  with the judge's prompts, normalized to [0, 1]. It
+  with the judge's prompts on a finer scale (A-J, not A-E), normalized to [0, 1]. It
   never trains anything; it gives every checkpoint of every
   run, verifier or judge, a score on one fixed scale.
 """
@@ -82,9 +82,11 @@ DEFAULT_REWARD_CONCURRENCY = 1200
 
 DEFAULT_EVALUATOR_MODEL = "moonshotai/Kimi-K2.6"
 
-# The judge's and the held-out evaluator's scale: A-J, a standard 1-10 scale
+# The held-out evaluator's scale: A-J, a standard 1-10 scale
 # (A = 10 = 1.0, J = 1 = 0.0).
 LETTER_GRADES = 10
+# The judge reward's scale: A-E, a 1-5 scale (A = 5 = 1.0, E = 1 = 0.0).
+JUDGE_LETTER_GRADES = 5
 
 TINKER_OPENAI_BASE_URL = "https://tinker.thinkingmachines.dev/services/tinker-prod/oai/api/v1"
 
@@ -112,46 +114,43 @@ GROUND_TRUTH_NOTE = (
 )
 
 DEFAULT_CRITERIA: dict[str, str] = {
-    "Content Fidelity": (
-        "Does the painting contain exactly what the request names? The main "
-        "subject must be recognizable to a casual viewer without reading the "
-        "prompt, and every other named element must be there too: the setting "
-        "(a still pond, a picket fence, a path to a distant cottage), any second "
-        "object, and any lighting (dappled sunlight, sunset). Check every stated "
-        "count, position, shape and depth cue literally: exactly five tulips, not "
-        "four or seven; the vase to the left of the teacup, not the right; a bowl "
-        "with a narrow base and a wide opening; a road that narrows toward the "
-        "horizon. Score HIGH only when every named element is present and every "
-        "count, position and shape is right. Score LOW for a generic blob, a "
-        "missing or extra element, a wrong count, or a swapped position. Ignore "
-        "color, painting style and polish."
+    "Subject and Prompt Fidelity": (
+        "How accurately does the painting depict the requested subject, "
+        "scene, and colors? Evaluate whether the main subject is clearly "
+        "recognizable, its defining features are present, and any requested "
+        "objects, relationships, or color attributes are represented. "
+        "Score HIGH for a clear, specific, and faithful depiction. "
+        "Score LOW for ambiguous shapes, missing defining features, "
+        "incorrect subjects, or omitted scene elements. "
+        "Ignore artistic technique and overall visual appeal."
     ),
-    "Color and Style Fidelity": (
-        "Are the request's color and style words honored? Each named color must "
-        "clearly be that hue on the thing it names: a teal subject is teal, not "
-        'blue or green, and in "a blue vase to the left of a yellow teacup" the '
-        "vase is blue and the teacup yellow. The painting must show the named "
-        "style's visual signature: a wet-on-wet wash has colors blooming and "
-        "bleeding into each other with few hard edges; minimal watercolor with "
-        "lots of white paper uses a few economical washes and leaves large areas "
-        "of paper untouched; watercolor with soft ink outlines has delicate, "
-        "light ink lines around the forms with loose washes; layered watercolor "
-        "glazes show visibly stacked transparent layers whose overlaps deepen "
-        "the color. Score LOW for wrong or swapped colors, or a style other than "
-        "the one requested. Ignore whether the subject is correct and how the "
-        "picture is arranged."
+    "Watercolor Technique": (
+        "How skillfully does the painting use watercolor techniques? "
+        "Evaluate the quality of translucent washes, pigment variation, "
+        "color blending, layered brushstrokes, and the balance between "
+        "soft and defined edges. Consider whether the brushwork feels "
+        "intentional and whether the requested watercolor style, "
+        "such as loose washes, wet-on-wet blending, or ink outlines, "
+        "is convincingly executed. "
+        "Score HIGH for expressive, controlled, and natural-looking "
+        "watercolor effects. Score LOW for flat digital shapes, "
+        "mechanical outlines, muddy washes, or random scribbles. "
+        "Do not reward complexity or texture for their own sake. "
+        "Ignore subject accuracy and overall composition."
     ),
-    "Watercolor Craft and Composition": (
-        "Is this a well-made, pleasant watercolor? Look for real watercolor on "
-        "paper: soft bleeding edges, translucent washes that pool and overlap, "
-        "paper texture or granulation, varied strokes, restrained outlines. Look "
-        "for a clear focal point, the subject at a sensible size, balanced use of "
-        "the canvas, and harmonious color. Untouched paper is a strength when it "
-        "reads as deliberate negative space, and a flaw only when the painting "
-        "looks unfinished. Score LOW for flat clip-art fills, hard vector edges, "
-        "opaque uniform shapes, random scribbles, muddy color, cluttered chaos, "
-        "or tiny or cut-off subjects. Ignore whether the subject, colors and "
-        "style match the request."
+    "Composition and Aesthetic Appeal": (
+        "How visually appealing and artistically cohesive is the painting? "
+        "Evaluate visual balance, focal point clarity, spatial arrangement, "
+        "color harmony, contrast, and the intentional use of negative space. "
+        "Consider whether the painting feels complete, expressive, and "
+        "visually engaging within its intended style. "
+        "Score HIGH for harmonious colors, effective visual hierarchy, "
+        "balanced proportions, and a compelling overall impression. "
+        "Score LOW for awkward framing, distracting clutter, poor color "
+        "relationships, or visually incoherent arrangements. "
+        "Minimalist compositions and intentional white space should "
+        "not be penalized. Ignore subject accuracy and "
+        "watercolor-specific technique."
     ),
 }
 
@@ -220,7 +219,7 @@ class JudgeConfig:
     # Each is its own call per painting, and a painting's reward is the mean.
     criteria: tuple[str, ...] = ()
     # One written letter per criterion, A (best) to the Nth letter (worst).
-    letter_grades: int = LETTER_GRADES
+    letter_grades: int = JUDGE_LETTER_GRADES
     # Independent judgments per painting and criterion, averaged.
     n_evaluations: int = 1
     image_size: int = 448
@@ -245,7 +244,7 @@ class EvaluatorConfig:
     # the judge scores them.
     criteria: tuple[str, ...] = ()
     # Each criterion graded with one written letter from A (outstanding) to
-    # the Nth letter (complete failure), as the judge grades it.
+    # the Nth letter (complete failure); A-J, finer than the judge's A-E.
     letter_grades: int = LETTER_GRADES
     image_size: int = 448
     # One checkpoint is 50 prompts x 5 paintings x 3 criteria = 750 calls;
@@ -589,7 +588,7 @@ class PairwiseVerifier(_TinkerOpenAIScorer):
 
 
 # ---------------------------------------------------------------------------
-# LLM-as-a-Judge: one painting at a time, each criterion graded A-J
+# LLM-as-a-Judge: one painting at a time, each criterion graded A-E
 # ---------------------------------------------------------------------------
 
 _ABSOLUTE_PREAMBLE = (
