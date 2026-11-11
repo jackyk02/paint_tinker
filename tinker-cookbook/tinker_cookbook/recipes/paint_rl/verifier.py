@@ -230,7 +230,8 @@ RewardConfig = VerifierConfig | JudgeConfig
 
 @chz.chz
 class EvaluatorConfig:
-    """The held-out evaluator, on Tinker's native sampler; never enters the reward."""
+    """The held-out evaluator, on Tinker's native sampler or an OpenAI-compatible
+    API (``api_base_url``); never enters the reward."""
 
     model_name: str = DEFAULT_EVALUATOR_MODEL
     # None: model_info's recommended renderer for model_name.
@@ -249,6 +250,13 @@ class EvaluatorConfig:
     # 2000 keeps every one of them in flight.
     max_concurrency: int = 2000
     base_url: str | None = None
+    # Set to call model_name on an OpenAI-compatible chat API instead of Tinker
+    # (e.g. https://api.deepseek.com), with the key read from api_key_env
+    # (comma-separated names: later keys are fallbacks once one is refused).
+    api_base_url: str | None = None
+    api_key_env: str = "OPENAI_API_KEY"
+    # Passed through as the API's reasoning_effort; None keeps its default.
+    reasoning_effort: str | None = None
 
 
 @dataclass
@@ -797,6 +805,90 @@ class _TinkerVisionClient:
         return replies
 
 
+class _OpenAIVisionClient:
+    """A vision model behind an OpenAI-compatible chat completions API.
+
+    Plain httpx rather than the openai SDK, whose per-request overhead caps a
+    single process at a few calls per second.
+    """
+
+    def __init__(self, config: EvaluatorConfig):
+        import httpx
+
+        self.config = config
+        self._keys = [os.environ[name] for name in config.api_key_env.split(",") if name]
+        self._key = 0
+        self._client = httpx.AsyncClient(
+            base_url=(config.api_base_url or "").rstrip("/"),
+            timeout=900.0,
+            limits=httpx.Limits(max_connections=config.max_concurrency),
+        )
+        self._semaphore = asyncio.Semaphore(config.max_concurrency)
+
+    async def _one(self, prompt: str, image_url: str) -> Reply:
+        import httpx
+
+        body: dict[str, Any] = {
+            "model": self.config.model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                }
+            ],
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+        }
+        if self.config.reasoning_effort is not None:
+            body["reasoning_effort"] = self.config.reasoning_effort
+        error = ""
+        async with self._semaphore:
+            for attempt in range(8):
+                key = self._key
+                try:
+                    r = await self._client.post(
+                        "/chat/completions",
+                        json=body,
+                        headers={"Authorization": f"Bearer {self._keys[key]}"},
+                    )
+                except httpx.HTTPError as e:
+                    error = f"{type(e).__name__}: {e}"
+                else:
+                    choices = (r.json() or {}).get("choices") if r.status_code == 200 else None
+                    if choices:
+                        choice = choices[0]
+                        text = (choice.get("message") or {}).get("content") or ""
+                        return Reply(
+                            text=text, truncated=choice.get("finish_reason") == "length" or not text
+                        )
+                    # A 200 without choices is retried like a server error.
+                    error = f"HTTP {r.status_code}: {r.text[:200]}"
+                    # Out of balance or a bad key: move on to the next key, if any.
+                    if r.status_code in (401, 402) and key == self._key:
+                        if key + 1 >= len(self._keys):
+                            break
+                        self._key = key + 1
+                        logger.warning("evaluator key %d failed (%s); switching keys", key, error)
+                        continue
+                    if r.status_code < 500 and r.status_code not in (200, 429):
+                        break
+                await asyncio.sleep(min(60.0, 2.0**attempt) * (0.5 + random.random()))
+        logger.warning("held-out evaluator call failed (%s)", error)
+        return Reply(text="", truncated=True)
+
+    async def ask(self, prompt: str, image: Image.Image, num_samples: int) -> list[Reply]:
+        """``num_samples`` replies to one prompt, one request each."""
+        import base64
+
+        image_url = "data:image/png;base64," + base64.b64encode(_png_bytes(image)).decode()
+        return list(
+            await asyncio.gather(*(self._one(prompt, image_url) for _ in range(num_samples)))
+        )
+
+
 class HeldoutEvaluator:
     """Independent absolute scores per painting and criterion, no pairing.
 
@@ -809,7 +901,9 @@ class HeldoutEvaluator:
 
     def __init__(self, config: EvaluatorConfig):
         self.config = config
-        self._client = _TinkerVisionClient(config)
+        self._client: _TinkerVisionClient | _OpenAIVisionClient = (
+            _OpenAIVisionClient(config) if config.api_base_url else _TinkerVisionClient(config)
+        )
 
     async def score_group(
         self, problem: str, images: list[Image.Image], seed: int = 0
