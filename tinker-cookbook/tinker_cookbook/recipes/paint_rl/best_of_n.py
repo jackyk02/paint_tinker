@@ -12,7 +12,7 @@
 
     # Score the selection rule on paintings a held-out evaluation already made
     # (no sampling): pick from each prompt's saved paintings and report the
-    # Kimi score of the pick against the average painting and the best one.
+    # held-out evaluator's score of the pick against the average painting and the best one.
     python -m tinker_cookbook.recipes.paint_rl.best_of_n \\
         from_heldout=/tmp/paint_rl/verifier/heldout_eval/paintings/test/step_0400 out_dir=...
 
@@ -93,7 +93,7 @@ class Candidate:
     code: str | None
     render: RenderResult | None
     truncated: bool
-    # Set when the candidate comes from a held-out evaluation: Kimi's score.
+    # Set when the candidate comes from a held-out evaluation: the evaluator's score.
     eval_score: float | None = None
 
     @property
@@ -282,7 +282,7 @@ class BestOfN:
 
 
 def selection_summary(rows: list[dict]) -> dict[str, float]:
-    """Kimi score of the verifier's pick vs the average painting (a random pick)
+    """Held-out evaluator score of the verifier's pick vs the average painting (a random pick)
     and the best painting (an oracle pick), averaged over prompts."""
     picked, mean, oracle = [], [], []
     for r in rows:

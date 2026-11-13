@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 pip install -e "$HERE/tinker-cookbook[paint-rl]"
 python -m playwright install --with-deps chromium
 if [ ! -f "$HERE/.env" ]; then
-  echo "No $HERE/.env yet — copy .env.example and fill in TINKER_API_KEY."
+  echo "No $HERE/.env yet — copy .env.example and fill in TINKER_API_KEY (and DEEPSEEK_API_KEY for held-out evaluation)."
 fi
 echo "Installed. Run: python -m tinker_cookbook.recipes.paint_rl.train reward_mode=verifier log_path=/tmp/paint_rl/verifier"
 echo "  (LLM-as-a-Judge baseline: reward_mode=judge log_path=/tmp/paint_rl/judge)"

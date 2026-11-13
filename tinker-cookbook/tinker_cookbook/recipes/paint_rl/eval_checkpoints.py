@@ -12,7 +12,7 @@ Training saves sampler weights every ``save_every`` steps and lists them in
 0) and then each listed checkpoint whose step is a multiple of ``every``, plus
 the final one, on the run's held-out prompts: the policy samples
 ``test_group_size`` paintings per prompt, they are rendered, and the held-out
-evaluator (``moonshotai/Kimi-K2.6`` on Tinker by default; ``evaluator.*``
+evaluator (DeepSeek-V4.1-Flash on DeepSeek's API by default; ``evaluator.*``
 changes it) scores them. The evaluator is configured here rather than taken
 from the run, so verifier and judge runs are measured on the same yardstick.
 The run's own reward model is skipped unless ``with_reward=True``. Training is
@@ -71,7 +71,7 @@ class Config:
     # The training run to evaluate (its config.json and checkpoints.jsonl).
     log_path: str
     # Evaluate checkpoints whose step is a multiple of this (the final one always).
-    every: int = 5
+    every: int = 10
     include_base: bool = True
     # Keep polling checkpoints.jsonl until the final checkpoint has been evaluated.
     follow: bool = True

@@ -14,7 +14,7 @@ Reward for one rollout (all terms in [0, 1]):
   for rollouts that failed the compile gate (they are not scored).
 
 Held-out groups are additionally scored by an independent evaluator
-(``moonshotai/Kimi-K2.6`` on Tinker) that never feeds back into training; it
+(DeepSeek-V4.1-Flash on DeepSeek's API by default) that never feeds back into training; it
 reports ``eval_strong/score``, a measure of quality that does not depend on
 the training reward, so verifier and judge runs are compared on it.
 

@@ -31,8 +31,9 @@ with one is directly comparable to a run with the other:
   is set up to read the letter distribution from the model's own sampled
   score tags (the ``llm_verifier`` path for hosted APIs).
 
-* :class:`HeldoutEvaluator` — the held-out yardstick: ``moonshotai/Kimi-K2.6``
-  on Tinker's native sampler scores each held-out painting on its own on each
+* :class:`HeldoutEvaluator` — the held-out yardstick: DeepSeek-V4.1-Flash
+  (``deepseek-flash`` on DeepSeek's OpenAI-compatible API, since Tinker takes no
+  images for it) scores each held-out painting on its own on each
   of the verifier's three criteria, one written A-J letter per criterion,
   with the judge's prompts, normalized to [0, 1]. It
   never trains anything; it gives every checkpoint of every
@@ -80,7 +81,11 @@ DEFAULT_REWARD_MAX_TOKENS = 8192
 # x 3 criteria x 4 repeats = 960 calls, so the whole step is in flight at once.
 DEFAULT_REWARD_CONCURRENCY = 1200
 
-DEFAULT_EVALUATOR_MODEL = "moonshotai/Kimi-K2.6"
+# DeepSeek-V4.1-Flash on DeepSeek's own API. Tinker serves the model but refuses
+# image input for it, so the held-out evaluator is the one piece not on Tinker.
+DEFAULT_EVALUATOR_MODEL = "deepseek-flash"
+DEFAULT_EVALUATOR_API_BASE_URL = "https://api.deepseek.com"
+DEFAULT_EVALUATOR_API_KEY_ENV = "DEEPSEEK_API_KEY"
 
 # The judge's and the held-out evaluator's scale: A-J, a standard 1-10 scale
 # (A = 10 = 1.0, J = 1 = 0.0).
@@ -230,11 +235,12 @@ RewardConfig = VerifierConfig | JudgeConfig
 
 @chz.chz
 class EvaluatorConfig:
-    """The held-out evaluator, on Tinker's native sampler or an OpenAI-compatible
-    API (``api_base_url``); never enters the reward."""
+    """The held-out evaluator, on an OpenAI-compatible API (``api_base_url``, the
+    default) or Tinker's native sampler (``api_base_url=None``); never enters the
+    reward."""
 
     model_name: str = DEFAULT_EVALUATOR_MODEL
-    # None: model_info's recommended renderer for model_name.
+    # Tinker only. None: model_info's recommended renderer for model_name.
     renderer_name: str | None = None
     max_tokens: int = 8192
     temperature: float = 1.0
@@ -250,13 +256,14 @@ class EvaluatorConfig:
     # 2000 keeps every one of them in flight.
     max_concurrency: int = 2000
     base_url: str | None = None
-    # Set to call model_name on an OpenAI-compatible chat API instead of Tinker
-    # (e.g. https://api.deepseek.com), with the key read from api_key_env
-    # (comma-separated names: later keys are fallbacks once one is refused).
-    api_base_url: str | None = None
-    api_key_env: str = "OPENAI_API_KEY"
+    # The OpenAI-compatible chat API that serves model_name, with the key read
+    # from api_key_env (comma-separated names: later keys are fallbacks once one
+    # is refused). None calls model_name on Tinker's native sampler instead
+    # (e.g. evaluator.model_name=moonshotai/Kimi-K2.6 evaluator.api_base_url=None).
+    api_base_url: str | None = DEFAULT_EVALUATOR_API_BASE_URL
+    api_key_env: str = DEFAULT_EVALUATOR_API_KEY_ENV
     # Passed through as the API's reasoning_effort; None keeps its default.
-    reasoning_effort: str | None = None
+    reasoning_effort: str | None = "low"
 
 
 @dataclass
@@ -729,8 +736,8 @@ class AbsoluteJudge(_TinkerOpenAIScorer):
 
 
 # ---------------------------------------------------------------------------
-# Held-out evaluator: Kimi on Tinker's native sampler, one call per painting and
-# criterion, graded A-J
+# Held-out evaluator: one call per painting and criterion, graded A-J, on an
+# OpenAI-compatible API (default) or Tinker's native sampler
 # ---------------------------------------------------------------------------
 
 
@@ -816,7 +823,13 @@ class _OpenAIVisionClient:
         import httpx
 
         self.config = config
-        self._keys = [os.environ[name] for name in config.api_key_env.split(",") if name]
+        names = [name for name in config.api_key_env.split(",") if name]
+        self._keys = [os.environ[name] for name in names if os.environ.get(name)]
+        if not self._keys:
+            raise llm_verifier.MissingAPIKeyError(
+                f"set {' or '.join(names)} to use the held-out evaluator "
+                f"({config.model_name} at {config.api_base_url})"
+            )
         self._key = 0
         self._client = httpx.AsyncClient(
             base_url=(config.api_base_url or "").rstrip("/"),

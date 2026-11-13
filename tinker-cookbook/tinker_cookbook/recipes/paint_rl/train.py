@@ -9,12 +9,13 @@
 The policy is ``thinkingmachines/Inkling-Small`` on Tinker. The reward model
 is Inkling-Small itself at thinking effort 0.2 ("low"); the two reward modes
 share every other setting, so their runs can be compared directly on the held-out
-score from ``eval_checkpoints.py`` (``moonshotai/Kimi-K2.6`` on Tinker, which
+score from ``eval_checkpoints.py`` (DeepSeek-V4.1-Flash on DeepSeek's API, which
 never feeds back into training).
 
 Reward-model knobs are nested: ``verifier.n_evaluations=4``,
 ``judge.effort=0.2``, ``verifier.max_concurrency=1200``, ... (defaults in
-``verifier.py``). Needs only ``TINKER_API_KEY``.
+``verifier.py``). Training needs only ``TINKER_API_KEY``; held-out evaluation
+also needs ``DEEPSEEK_API_KEY``.
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ class CLIConfig:
     # Each step: 8 prompts x 5 rollouts.
     group_size: int = 5
     groups_per_batch: int = 8
-    max_steps: int = 500
+    max_steps: int = 800
     num_substeps: int = 1
     kl_penalty_coef: float = 0.0
     loss_fn: LossFnType = "importance_sampling"
@@ -113,7 +114,7 @@ class CLIConfig:
     # off by default; run eval_checkpoints.py alongside instead (it evaluates
     # every saved checkpoint in a separate process). Set >0 to evaluate inline.
     eval_every: int = 0
-    # Checkpoint (training state + sampler weights) every 5 steps, each one
+    # Checkpoint (training state + sampler weights) every 5 steps; every 10th step is
     # evaluated on the held-out prompts by eval_checkpoints.py.
     save_every: int = 5
     # Lifetime of the periodic checkpoints on Tinker, in seconds. None keeps
