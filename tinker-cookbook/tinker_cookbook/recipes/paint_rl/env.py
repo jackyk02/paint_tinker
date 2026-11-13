@@ -48,7 +48,6 @@ from tinker_cookbook.recipes.paint_rl.prompts import (
     system_prompt,
 )
 from tinker_cookbook.recipes.paint_rl.render import (
-    RenderBackend,
     RenderResult,
     SketchRenderer,
     extract_code,
@@ -217,7 +216,6 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
     iteration: int
     seed: int = 0
     render_concurrency: int = 16
-    render_backend: RenderBackend = "local"
     # Per-sketch render timeout. A sketch that times out fails the compile gate.
     render_timeout_s: float = 300.0
     # False skips the training reward model entirely (score 0): used by the
@@ -228,7 +226,7 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
 
     def _sketch_renderer(self) -> SketchRenderer:
         return get_shared_renderer(
-            self.canvas_size, self.render_concurrency, self.render_backend, self.render_timeout_s
+            self.canvas_size, self.render_concurrency, self.render_timeout_s
         )
 
     async def make_envs(self) -> Sequence[Env]:
@@ -522,7 +520,6 @@ class PaintRLDatasetBuilder(RLDatasetBuilder):
     weights: RewardWeights
     canvas_size: int
     render_concurrency: int
-    render_backend: RenderBackend
     render_timeout_s: float
     n_train_prompts: int
     # Held-out prompts, a sample of the pool spread over every subject.
@@ -583,7 +580,6 @@ class PaintRLDatasetBuilder(RLDatasetBuilder):
                     iteration=iteration,
                     seed=self.seed,
                     render_concurrency=self.render_concurrency,
-                    render_backend=self.render_backend,
                     render_timeout_s=self.render_timeout_s,
                 )
 

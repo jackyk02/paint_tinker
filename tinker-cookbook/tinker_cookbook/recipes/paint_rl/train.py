@@ -31,7 +31,6 @@ from tinker.types import LossFnType
 from tinker_cookbook import checkpoint_utils, cli_utils
 from tinker_cookbook.recipes.paint_rl.env import PaintRLDatasetBuilder, RewardWeights
 from tinker_cookbook.recipes.paint_rl.prompts import N_TEST_PROMPTS, N_TRAIN_PROMPTS
-from tinker_cookbook.recipes.paint_rl.render import RenderBackend
 from tinker_cookbook.recipes.paint_rl.verifier import (
     EvaluatorConfig,
     JudgeConfig,
@@ -98,7 +97,6 @@ class CLIConfig:
     # WebGL rendering of a long one can pass 2 min when the CPU is shared; a
     # timeout scores 0, so leave plenty of headroom.
     render_timeout_s: float = 300.0
-    render_backend: RenderBackend = "local"  # 'modal' after `modal deploy .../render_modal.py`
     # Training randomness (prompt order, reward-model seeds). It leaves the prompt
     # split alone, so runs with different seeds share the same held-out prompts.
     seed: int = 0
@@ -170,7 +168,6 @@ async def cli_main(cli: CLIConfig) -> None:
         canvas_size=cli.canvas_size,
         render_concurrency=cli.render_concurrency,
         render_timeout_s=cli.render_timeout_s,
-        render_backend=cli.render_backend,
         n_train_prompts=cli.n_train_prompts,
         n_test_prompts=cli.n_test_prompts,
         test_group_size=cli.test_group_size,

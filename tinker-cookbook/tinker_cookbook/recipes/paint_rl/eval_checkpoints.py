@@ -190,7 +190,6 @@ class CheckpointEvaluator:
                 seed=self.data["seed"],
                 render_concurrency=self.cfg.render_concurrency,
                 render_timeout_s=self.cfg.render_timeout_s,
-                render_backend=self.data["render_backend"],
                 score_with_training_reward=self.cfg.with_reward,
                 artifact_step=step,
             )
@@ -234,7 +233,6 @@ class CheckpointEvaluator:
             await get_shared_renderer(
                 self.data["canvas_size"],
                 self.cfg.render_concurrency,
-                self.data["render_backend"],
                 self.cfg.render_timeout_s,
             ).close()
 

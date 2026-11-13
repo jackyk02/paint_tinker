@@ -18,7 +18,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from PIL import Image, ImageStat
 
@@ -28,8 +28,6 @@ if TYPE_CHECKING:
     from playwright.async_api import Browser, Playwright
 
 logger = logging.getLogger(__name__)
-
-RenderBackend = Literal["local", "modal"]
 
 _CODE_FENCE = re.compile(r"```(?:javascript|js)?\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 _BRUSH_CALL = re.compile(r"\bbrush\.([A-Za-z_]\w*)\s*\(")
@@ -164,12 +162,9 @@ class SketchRenderer:
         max_concurrency: int = 16,
         timeout_s: float = 120.0,
         min_brush_calls: int = 3,
-        backend: RenderBackend = "local",
         n_browsers: int | None = None,
     ):
         self.canvas_size = canvas_size
-        self.backend = backend
-        self._modal_fn: object | None = None
         self.timeout_s = timeout_s
         self.min_brush_calls = min_brush_calls
         self.max_concurrency = max_concurrency
@@ -231,10 +226,7 @@ class SketchRenderer:
             )
         page_html = self._page_html(code)
         async with self._semaphore:
-            if self.backend == "modal":
-                data_url, error = await self._render_modal(page_html)
-            else:
-                data_url, error = await self._render_local(page_html)
+            data_url, error = await self._render_local(page_html)
 
         png: bytes | None = None
         blank = True
@@ -313,23 +305,6 @@ class SketchRenderer:
             return data_url, error
         raise AssertionError("unreachable")
 
-    async def _render_modal(self, page_html: str) -> tuple[str | None, str | None]:
-        if self._modal_fn is None:
-            from tinker_cookbook.recipes.paint_rl.render_modal import (
-                lookup_render_function,
-            )
-
-            self._modal_fn = lookup_render_function()
-        fn = self._modal_fn
-        try:
-            result = await fn.remote.aio(page_html, self.canvas_size, self.timeout_s)  # type: ignore[attr-defined]
-        except Exception as e:
-            return (
-                None,
-                f"modal render failed: {type(e).__name__}: {str(e).splitlines()[0][:300]}",
-            )
-        return result.get("data_url"), result.get("error")
-
 
 _SHARED: SketchRenderer | None = None
 
@@ -337,7 +312,6 @@ _SHARED: SketchRenderer | None = None
 def get_shared_renderer(
     canvas_size: int = 512,
     max_concurrency: int = 16,
-    backend: RenderBackend = "local",
     timeout_s: float = 120.0,
 ) -> SketchRenderer:
     """Process-wide renderer (one browser pool), created on first use."""
@@ -345,14 +319,12 @@ def get_shared_renderer(
     if (
         _SHARED is None
         or _SHARED.canvas_size != canvas_size
-        or _SHARED.backend != backend
         or _SHARED.timeout_s != timeout_s
         or _SHARED.max_concurrency != max_concurrency
     ):
         _SHARED = SketchRenderer(
             canvas_size=canvas_size,
             max_concurrency=max_concurrency,
-            backend=backend,
             timeout_s=timeout_s,
         )
     return _SHARED

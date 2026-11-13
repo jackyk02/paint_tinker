@@ -78,7 +78,7 @@ def test_reward_config_follows_reward_mode():
             model_name_for_tokenizer="m", renderer_name="r", batch_size=1, group_size=2,
             n_batches=1, policy_effort=0.7, reward_mode=mode, verifier_config=VerifierConfig(),
             judge_config=JudgeConfig(), evaluator_config=None, weights=RewardWeights(),
-            canvas_size=512, render_concurrency=1, render_backend="local",
+            canvas_size=512, render_concurrency=1,
             render_timeout_s=1.0, n_train_prompts=1, n_test_prompts=0, test_group_size=1, seed=0,
         )  # fmt: skip
 
