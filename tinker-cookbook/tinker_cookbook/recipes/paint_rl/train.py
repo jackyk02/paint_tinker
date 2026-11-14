@@ -112,9 +112,9 @@ class CLIConfig:
     # off by default; run eval_checkpoints.py alongside instead (it evaluates
     # every saved checkpoint in a separate process). Set >0 to evaluate inline.
     eval_every: int = 0
-    # Checkpoint (training state + sampler weights) every 5 steps; every 10th step is
+    # Checkpoint (training state + sampler weights) every 10 steps; each one is
     # evaluated on the held-out prompts by eval_checkpoints.py.
-    save_every: int = 5
+    save_every: int = 10
     # Lifetime of the periodic checkpoints on Tinker, in seconds. None keeps
     # them all indefinitely (the cookbook default expires them after 7 days);
     # the final checkpoint is always kept.
