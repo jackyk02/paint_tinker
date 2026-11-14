@@ -225,9 +225,7 @@ class PaintEnvGroupBuilder(EnvGroupBuilder):
     artifact_step: int | None = None
 
     def _sketch_renderer(self) -> SketchRenderer:
-        return get_shared_renderer(
-            self.canvas_size, self.render_concurrency, self.render_timeout_s
-        )
+        return get_shared_renderer(self.canvas_size, self.render_concurrency, self.render_timeout_s)
 
     async def make_envs(self) -> Sequence[Env]:
         return [

@@ -87,18 +87,6 @@ $$R(x,\tau)=\frac{1}{CK}\sum_{c=1}^{C}\sum_{k=1}^{K}\sum_{g=1}^{G}p_\theta(v_g\m
 
 with $C=3$ criteria, $K=4$ repeats and $G=20$ score tokens; $p_\theta$ is the verifier's probability of score token $v_g$, and $\phi$ maps it to a scalar. Rewards are normalized within each group before the policy update.
 
-## Outputs and Visualization Tools
-
-Every rollout is saved under `<log_path>/paintings/`, including its generated JavaScript, rendered PNG, and verification scores. Metadata is indexed in `index.jsonl`.
-
-The repository also includes visualization and analysis utilities:
-
-| Script | Description |
-| --- | --- |
-| `gallery.py` | Generates an HTML gallery of paintings across training steps |
-| `progression.py` | Creates contact sheets showing the best paintings at each step |
-| `compare_runs.py` | Plots training and held-out evaluation curves across runs |
-
 ## Baseline: LLM-as-a-Judge
 
 To compare against conventional LLM-based reward modeling, train with:
@@ -133,6 +121,18 @@ Held-out scores from DeepSeek-V4.1-Flash on 250 paintings per evaluation, averag
 | 60% | 215 | 175 | 40 | 1.23× |
 | 65% | 400 | 260 | 140 | 1.54× |
 | 68% | 610 | 360 | 250 | 1.69× |
+
+## Outputs and Visualization Tools
+
+Every rollout is saved under `<log_path>/paintings/`, including its generated JavaScript, rendered PNG, and verification scores. Metadata is indexed in `index.jsonl`.
+
+The repository also includes visualization and analysis utilities:
+
+| Script | Description |
+| --- | --- |
+| `gallery.py` | Generates an HTML gallery of paintings across training steps |
+| `progression.py` | Creates contact sheets showing the best paintings at each step |
+| `compare_runs.py` | Plots training and held-out evaluation curves across runs |
 
 ## Citation
 
