@@ -50,18 +50,12 @@ For multiple runs, specify `seed=1`, `seed=2`, etc. The seed controls prompt ord
 Run during or after training:
 
 ```bash
+# DeepSeek-V4.1-Flash (default)
 export DEEPSEEK_API_KEY=...
 python -m tinker_cookbook.recipes.paint_rl.eval_checkpoints \
     log_path=/tmp/paint_rl/verifier
-```
 
-The base model and the checkpoint at every 10th step each paint 50 held-out prompts five times (250 paintings). DeepSeek-V4.1-Flash (`deepseek-flash`) grades each painting A–J on the same three criteria; it is never used for training rewards.
-
-Scores are written to `<log_path>/heldout_eval/metrics.jsonl` under `test/env/all/eval_strong/score`. Steps already scored are skipped, so the script can be stopped and resumed.
-
-To use Kimi-K2.6 through the Tinker API instead (only `TINKER_API_KEY` needed):
-
-```bash
+# Or Kimi-K2.6 through the Tinker API (only TINKER_API_KEY needed)
 python -m tinker_cookbook.recipes.paint_rl.eval_checkpoints \
     log_path=/tmp/paint_rl/verifier \
     evaluator.model_name=moonshotai/Kimi-K2.6 \
@@ -69,9 +63,7 @@ python -m tinker_cookbook.recipes.paint_rl.eval_checkpoints \
     out_dir=/tmp/paint_rl/verifier/heldout_eval_kimi
 ```
 
-Use a separate `out_dir` so Kimi and DeepSeek scores are not mixed.
-
-![Held-out painting quality across 800 training steps, comparing LLM-as-a-Verifier and LLM-as-a-Judge rewards.](figures/reward_vs_judge.png)
+The base model and the checkpoint at every 10th step each paint 50 held-out prompts five times (250 paintings). The evaluator grades each painting A–J on the same three criteria; it is never used for training rewards.
 
 ## Fine-Grained Self-Verification Rewards
 
@@ -105,7 +97,7 @@ The repository also includes visualization and analysis utilities:
 | --- | --- |
 | `gallery.py` | Generates an HTML gallery of paintings across training steps |
 | `progression.py` | Creates contact sheets showing the best paintings at each step |
-| `compare_runs.py` | Plots training and held-out evaluation curves across runs (requires matplotlib) |
+| `compare_runs.py` | Plots training and held-out evaluation curves across runs |
 
 ## Baseline: LLM-as-a-Judge
 
@@ -132,35 +124,15 @@ By computing continuous, probability-weighted scores and scaling verification ac
 
 ## Evaluation Results
 
-We compare both reward methods using DeepSeek-V4.1-Flash as an independent evaluator on **250 held-out paintings per evaluation, averaged across three training seeds**.
+Held-out scores from DeepSeek-V4.1-Flash on 250 paintings per evaluation, averaged over three seeds. At step 800, LLM-as-a-Verifier scores **0.765** against **0.686** for LLM-as-a-Judge (+8%). The verifier reaches the same held-out score in 1.23× to 1.69× fewer steps.
 
-### Final painting quality
+![Held-out painting quality across 800 training steps, comparing LLM-as-a-Verifier and LLM-as-a-Judge rewards.](figures/reward_vs_judge.png)
 
-At step 800, LLM-as-a-Verifier achieves a held-out score of **0.765**, compared with **0.686** for LLM-as-a-Judge, an improvement of approximately **8 percentage points**.
-
-### Reward discrimination
-
-The standard judge's tie rate reaches approximately **61%** by step 800, limiting its ability to distinguish between candidate paintings.
-
-In contrast, LLM-as-a-Verifier produces continuous scores and avoids exact ties in these experiments, providing more informative reward signals as painting quality improves.
-
-### Sample efficiency
-
-LLM-as-a-Verifier reaches the same held-out quality targets in **1.23× to 1.69× fewer training steps** than LLM-as-a-Judge. The advantage increases at higher quality thresholds.
-
-| Target held-out score | LLM-as-a-Judge | LLM-as-a-Verifier | Steps saved | Speedup |
-| --- | ---: | ---: | ---: | ---: |
-| 0.60 | 215 | 175 | 40 | **1.23×** |
-| 0.65 | 400 | 260 | 140 | **1.54×** |
-| 0.68 | 610 | 360 | 250 | **1.69×** |
-
-These results suggest that fine-grained self-verification provides a more effective learning signal than conventional discrete judging, improving both sample efficiency and final painting quality.
-
-### Qualitative progression
-
-The following examples illustrate how the policy's watercolor painting ability evolves over training, from the base model (step 0) through steps 200, 400, and 800.
-
-![Watercolor paintings of a pear on a table and a mountain at dawn, illustrating the progression of painting quality at training steps 0, 200, 400, and 800.](figures/paint.png)
+| Target Held-out Score | LLM-as-a-Judge | LLM-as-a-Verifier | Steps Saved | Speedup |
+| --- | --- | --- | --- | --- |
+| 60% | 215 | 175 | 40 | 1.23× |
+| 65% | 400 | 260 | 140 | 1.54× |
+| 68% | 610 | 360 | 250 | 1.69× |
 
 ## Citation
 
